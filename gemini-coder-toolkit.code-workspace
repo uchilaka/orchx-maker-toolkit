@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "rubocop.mode": "disable",
+    "rubyLsp.rubyVersionManager": {
+      "identifier": "auto",
+      "auto": {
+        "useBundler": true
+      }
+    },
+    "terminal.integrated.fontSize": 14
+  }
+}
