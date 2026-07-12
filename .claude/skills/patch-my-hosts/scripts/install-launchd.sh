@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Render the LaunchAgent plist with absolute paths and load it.
+# TODO(LAR-352): no path-injection seam (INSTALLED_DIR is hardcoded) — makes this
+# script structurally harder to test than reconcile.sh's --hosts/--archive overrides.
 
 set -euo pipefail
 
@@ -20,6 +22,8 @@ mkdir -p "$INSTALLED_DIR"
 
 FETCH_SCRIPT="$HERE/fetch-upstream.sh"
 
+# TODO(LAR-350): unescaped sed replacement — a path containing & or | would
+# corrupt the rendered plist. Escape replacement values or switch templating approach.
 # Render template
 sed \
   -e "s|@@FETCH_SCRIPT@@|$FETCH_SCRIPT|g" \
@@ -36,6 +40,8 @@ if launchctl print "$domain/$LABEL" >/dev/null 2>&1; then
   launchctl bootout "$domain/$LABEL" 2>/dev/null || true
 fi
 
+# TODO(LAR-350): no rollback if bootstrap fails here — the previous agent is
+# already booted out, leaving no schedule + a possibly-bad plist on disk.
 launchctl bootstrap "$domain" "$INSTALLED"
 log "loaded $LABEL into $domain"
 

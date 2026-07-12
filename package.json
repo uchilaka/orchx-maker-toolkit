@@ -19,7 +19,7 @@
     "gemini": ">=0.37.0"
   },
   "scripts": {
-    "bundle": "brew bundle --file Brewfile.$RAILS_ENV",
+    "bundle": "brew bundle",
     "install:extensions": "gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent",
     "test": "node scripts/validate_skills.test.cjs",
     "build": "rm -rf dist && mkdir -p dist && for d in skills/*; do if [ -d \"$d\" ]; then skill_name=$(basename \"$d\"); echo \"Packaging ${skill_name}...\"; (cd \"$d\" && zip -rq \"../../dist/${skill_name}.skill\" .); fi; done"

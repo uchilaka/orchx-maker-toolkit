@@ -2,7 +2,10 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const SKILLS_DIR = path.join(__dirname, '..', 'skills');
+const SKILLS_DIRS = [
+  path.join(__dirname, '..', 'skills'),
+  path.join(__dirname, '..', '.claude', 'skills'),
+];
 let VALIDATOR_PATH;
 try {
   const brewPrefix = execSync('brew --prefix gemini-cli', { encoding: 'utf8' }).trim();
@@ -14,14 +17,17 @@ try {
 
 console.log('🔍 Starting Skill Validation Suite...\n');
 
-const skills = fs.readdirSync(SKILLS_DIR).filter(file => {
-  return fs.statSync(path.join(SKILLS_DIR, file)).isDirectory();
+const skills = SKILLS_DIRS.flatMap(skillsDir => {
+  if (!fs.existsSync(skillsDir)) return [];
+  return fs.readdirSync(skillsDir)
+    .filter(file => fs.statSync(path.join(skillsDir, file)).isDirectory())
+    .map(file => path.join(skillsDir, file));
 });
 
 let failed = false;
 
-skills.forEach(skill => {
-  const skillPath = path.join(SKILLS_DIR, skill);
+skills.forEach(skillPath => {
+  const skill = path.relative(path.join(__dirname, '..'), skillPath);
   console.log(`Testing [${skill}]...`);
   
   try {

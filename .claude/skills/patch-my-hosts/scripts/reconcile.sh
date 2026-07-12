@@ -13,6 +13,8 @@ hosts_in="$HOSTS_FILE"
 archive=""
 strict=0
 
+# TODO(LAR-351): flag-parsing loop duplicated/inconsistent across reconcile.sh,
+# fetch-upstream.sh, patch-my-hosts.sh — hoist shared skeleton into _lib.sh
 while [ $# -gt 0 ]; do
   case "$1" in
     --hosts) hosts_in="$2"; shift 2 ;;
@@ -56,12 +58,22 @@ mapfile -t sentinels < <(
 
 begin_line=""
 end_line=""
+begin_count=0
+end_count=0
 for entry in "${sentinels[@]:-}"; do
   case "$entry" in
-    "BEGIN "*) begin_line="${entry#BEGIN }" ;;
-    "END   "*) end_line="${entry#END   }" ;;
+    "BEGIN "*) begin_line="${entry#BEGIN }"; begin_count=$((begin_count + 1)) ;;
+    "END   "*) end_line="${entry#END   }"; end_count=$((end_count + 1)) ;;
   esac
 done
+
+# Sanity: more than one sentinel of the same type — could be a botched prior
+# apply, or upstream content that happens to collide with our sentinel text.
+# Refuse rather than silently picking the last match.
+if [ "$begin_count" -gt 1 ] || [ "$end_count" -gt 1 ]; then
+  log "found multiple sentinels of the same type in $hosts_in (BEGIN x$begin_count, END x$end_count) — refusing to reconcile"
+  exit 6
+fi
 
 if [ "$strict" -eq 1 ] && { [ -z "$begin_line" ] || [ -z "$end_line" ]; }; then
   log "strict mode: sentinels not found in $hosts_in"
@@ -80,6 +92,7 @@ if [ -n "$begin_line" ] && [ -n "$end_line" ] && [ "$end_line" -le "$begin_line"
   exit 5
 fi
 
+# TODO(LAR-348): predictable fixed path is a TOCTOU/symlink risk — use mktemp instead
 out="/tmp/hosts.${week}.patched"
 
 # Derive Fetched timestamp from the archive's mtime so re-running against the

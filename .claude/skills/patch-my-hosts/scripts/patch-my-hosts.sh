@@ -13,6 +13,8 @@ verbose=0
 force_fetch=0
 yes_first_run=0
 
+# TODO(LAR-351): flag-parsing loop duplicated/inconsistent across patch-my-hosts.sh,
+# fetch-upstream.sh, reconcile.sh — hoist shared skeleton into _lib.sh
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=1; shift ;;

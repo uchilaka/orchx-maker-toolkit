@@ -8,6 +8,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 . "$HERE/_lib.sh"
 
+# TODO(LAR-351): flag-parsing loop duplicated/inconsistent across fetch-upstream.sh,
+# patch-my-hosts.sh, reconcile.sh — hoist shared skeleton into _lib.sh
 force=0
 quiet=0
 for arg in "$@"; do
@@ -52,6 +54,8 @@ else
   trap - EXIT
 fi
 
+# TODO(LAR-348): this hashes the file against itself, not a pinned/trusted value —
+# doesn't detect a compromised upstream. Consider TOFU-pinning against last-known-good.
 # (Re)compute integrity sidecar
 shasum -a 256 "$archive" | awk '{print $1}' > "$sha_sidecar"
 
