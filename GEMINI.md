@@ -19,7 +19,7 @@
 - `dist/`: Versioned `.skill` files for distribution.
 - `docs/`: Human-friendly markdown documentation for each skill.
 - `CHANGELOG.md`: Root-level history of iterations.
-- `package.json`: Automated packaging via yarn.
+- `mise.toml`: Automated packaging & tooling via mise tasks.
 
 ---
 

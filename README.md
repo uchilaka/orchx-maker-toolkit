@@ -30,9 +30,13 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 ## 🚀 Installation & Usage
 
 ### Prerequisites
-Some workflows in this toolkit depend on external Gemini CLI extensions. Install them by running:
+Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/):
 ```bash
-yarn install:extensions
+mise install
+```
+This provisions the pinned `node`/`direnv` versions and, via a `postinstall` hook, installs the external Gemini CLI extensions this toolkit depends on. To (re)run that extension install explicitly:
+```bash
+mise run install:extensions
 ```
 *(Or run `gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent` directly)*
 
@@ -70,11 +74,11 @@ If you want to modify a skill or add a new one:
 1.  Modify the source files in `skills/<skill-name>/`.
 2.  **Validate** your changes using the test suite:
     ```bash
-    yarn test
+    mise run test
     ```
 3.  **Build** the distribution archives:
     ```bash
-    yarn build
+    mise run build:gemini
     ```
 4.  The updated `.skill` files will be available in the `dist/` folder.
 
