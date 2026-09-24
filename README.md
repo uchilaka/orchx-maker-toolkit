@@ -83,6 +83,17 @@ If you want to modify a skill or add a new one:
     ```
 4.  The updated `.skill` files will be available in the `dist/` folder.
 
+### Testing skills as Claude Code skills
+
+Every skill's `SKILL.md` is also valid Claude Code skill format. To check a skill mounts
+and validates cleanly as one (without permanently duplicating it into `.claude/skills/`):
+```bash
+mise run test:claude
+```
+This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's frontmatter,
+then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
+/ `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
+
 ## ⚖️ License
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](./LICENSE) file for details.
