@@ -1,0 +1,22 @@
+[tools]
+node = "24.17.0"
+direnv = "2.37.1"
+
+[tasks.bundle]
+description = "Install Homebrew dependencies from Brewfile"
+run = "brew bundle"
+
+[tasks."install:extensions"]
+description = "Install the Gemini CLI ralph extension"
+run = "gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent"
+
+[tasks.test]
+description = "Validate all skills via the gemini-cli Homebrew skill validator"
+run = "node scripts/validate_skills.test.cjs"
+
+[tasks."build:gemini"]
+description = "Package skills/* into dist/*.skill archives"
+run = "rm -rf dist && mkdir -p dist && for d in skills/*; do if [ -d \"$d\" ]; then skill_name=$(basename \"$d\"); echo \"Packaging ${skill_name}...\"; (cd \"$d\" && zip -rq \"../../dist/${skill_name}.skill\" .); fi; done"
+
+[hooks]
+postinstall = "mise run install:extensions"
