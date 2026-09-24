@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SKILLS_DIRS = [
-  path.join(__dirname, '..', 'skills'),
+  path.join(__dirname, '..', '.gemini', 'skills'),
   path.join(__dirname, '..', '.claude', 'skills'),
 ];
 let VALIDATOR_PATH;
