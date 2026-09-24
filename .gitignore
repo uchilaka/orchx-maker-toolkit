@@ -11,6 +11,12 @@ coverage/
 .gemini/tmp/
 .gemini/logs/
 
+# `mise run mount:claude` symlinks .gemini/skills/* into .claude/skills/ so they're
+# discoverable as Claude Code skills too. Ignore everything there except the
+# repo's real, Claude-native skills, so a mount never gets committed as a duplicate.
+.claude/skills/*
+!.claude/skills/patch-my-hosts
+
 # Local configuration files
 .env
 .env.local
