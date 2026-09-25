@@ -16,6 +16,7 @@ coverage/
 # repo's real, Claude-native skills, so a mount never gets committed as a duplicate.
 .claude/skills/*
 !.claude/skills/patch-my-hosts
+!.claude/skills/llm-wikify
 
 # Local configuration files
 .env

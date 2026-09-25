@@ -22,6 +22,7 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 | :--- | :--- | :--- |
 | `finish-worktree` | Exits Git worktrees, prepares draft PRs, and applies templates. | [Docs](./docs/finish-worktree.md) |
 | `import-profile` | Syncs global preferences and memory from external profiles. | [Docs](./docs/import-profile.md) |
+| `llm-wikify` | Claude Code: scaffolds a Karpathy-style LLM-maintained wiki (sources, wiki, schema) in any repo. | [Docs](./docs/llm-wikify.md) |
 | `markdown-manager` | Enforces documentation standards and manages planning artifacts. | [Docs](./docs/markdown-manager.md) |
 | `release` | Automates the version bump, changelog, build, and git release process. | [Docs](./docs/release.md) |
 | `specialist` | Orchestrates expert code, architecture, security, design, and devops reviews. | [Docs](./docs/specialist.md) |
