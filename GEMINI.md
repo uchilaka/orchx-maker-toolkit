@@ -15,11 +15,11 @@
 
 ## 🏗 Planned Structure
 
-- `skills/`: Uncompressed source folders (The Source of Truth).
+- `.gemini/skills/`: Uncompressed source folders (The Source of Truth), sitting alongside this repo's `.claude/skills/` — one dot-directory per harness.
 - `dist/`: Versioned `.skill` files for distribution.
 - `docs/`: Human-friendly markdown documentation for each skill.
 - `CHANGELOG.md`: Root-level history of iterations.
-- `package.json`: Automated packaging via yarn.
+- `mise.toml`: Automated packaging & tooling via mise tasks.
 
 ---
 
@@ -53,7 +53,7 @@
 - **Tuning Session (2026-04-10):** Elevated memory preferences and workflow logic to global `~/.gemini/GEMINI.md`. Moved Rails-specific rules of engagement to the global `session-start.sh` hook for conditional injection. Added `install:extensions` package.json script for installing the `ralph` dependency.
 
 
-**AI Context Hint:** When instructed to install skills from this repository, run `for f in dist/*.skill; do gemini skills install "$f" --consent; done`. If developing/testing skills locally, run `gemini skills link ./skills`.
+**AI Context Hint:** When instructed to install skills from this repository, run `for f in dist/*.skill; do gemini skills install "$f" --consent; done`. If developing/testing skills locally, run `gemini skills link ./.gemini/skills`.
 
 ---
 

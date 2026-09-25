@@ -9,21 +9,22 @@ We'd love to accept your patches and contributions to this project!
     ```bash
     git clone https://github.com/google/gemini-coder-toolkit.git
     ```
-3.  **Install dependencies**:
+3.  **Install tooling**:
     ```bash
-    yarn install
+    mise install
     ```
 
 ## 🛠 Development Workflow
 
 1.  **Create a new branch** for your feature or fix.
-2.  **Make your changes** in the `skills/` directory.
+2.  **Make your changes** in the `.gemini/skills/` directory.
 3.  **Run the test suite** to ensure your skills are valid:
     ```bash
-    yarn test
+    mise run test
     ```
 4.  **Commit your changes** using semantic commit messages (e.g., `feat:`, `fix:`, `docs:`).
 5.  **Push your branch** and open a Pull Request.
+6.  **Request a Claude review** (optional) by commenting `@claude review` on the PR. Reviews never run automatically; see [docs/claude-github-actions.md](docs/claude-github-actions.md).
 
 ## ⚖️ License
 

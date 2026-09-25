@@ -10,9 +10,10 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 
 ## 🏗 Project Structure
 
-- `skills/`: **The Source of Truth.** Uncompressed source folders for each skill. Modify code here.
+- `.gemini/skills/`: **The Source of Truth.** Uncompressed source folders for each skill. Modify code here.
 - `dist/`: **Distribution.** Versioned `.skill` files (ZIP archives) ready for installation.
 - `docs/`: **Documentation.** Human-friendly guides and references for each skill.
+- `.claude/skills/`: Claude Code skills scoped to this repo only, independent of the Gemini `.gemini/skills/` catalog above (see `CLAUDE.md`).
 - `LICENSE`: The project is licensed under **GPL-3.0**.
 
 ## 🛠 Available Skills
@@ -30,9 +31,13 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 ## 🚀 Installation & Usage
 
 ### Prerequisites
-Some workflows in this toolkit depend on external Gemini CLI extensions. Install them by running:
+Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/):
 ```bash
-yarn install:extensions
+mise install
+```
+This provisions the pinned `node`/`direnv` versions and, via a `postinstall` hook, installs the external Gemini CLI extensions this toolkit depends on. To (re)run that extension install explicitly:
+```bash
+mise run install:extensions
 ```
 *(Or run `gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent` directly)*
 
@@ -53,7 +58,7 @@ for f in dist/*.skill; do gemini skills install "$f" --consent; done
 **Link source skills (For Developers):**
 To link the uncompressed source directories directly (useful for local development without building):
 ```bash
-gemini skills link ./skills
+gemini skills link ./.gemini/skills
 ```
 
 ### Activating Skills
@@ -67,14 +72,14 @@ activate_skill({ name: "start-worktree" })
 
 If you want to modify a skill or add a new one:
 
-1.  Modify the source files in `skills/<skill-name>/`.
+1.  Modify the source files in `.gemini/skills/<skill-name>/`.
 2.  **Validate** your changes using the test suite:
     ```bash
-    yarn test
+    mise run test
     ```
 3.  **Build** the distribution archives:
     ```bash
-    yarn build
+    mise run build:gemini
     ```
 4.  The updated `.skill` files will be available in the `dist/` folder.
 

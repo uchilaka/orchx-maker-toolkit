@@ -1,9 +1,7 @@
 # Dependencies
+# mise pins node for the skill validator; there is no package.json, but ignore
+# node_modules/ in case a script pulls packages in locally.
 node_modules/
-.pnp
-.pnp.js
-.pnp.cjs
-.pnp.loader.mjs
 
 # Testing
 coverage/
@@ -25,19 +23,3 @@ coverage/
 .env
 .env.*
 !.env.example
-
-# npm/yarn
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm/
-.eslintcache
-*.tsbuildinfo
-
-# Yarn Berry: keep project-level plugins, patches and releases, drop the rest
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
