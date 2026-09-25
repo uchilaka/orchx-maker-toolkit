@@ -10,9 +10,10 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 
 ## 🏗 Project Structure
 
-- `skills/`: **The Source of Truth.** Uncompressed source folders for each skill. Modify code here.
+- `.gemini/skills/`: **The Source of Truth.** Uncompressed source folders for each skill. Modify code here.
 - `dist/`: **Distribution.** Versioned `.skill` files (ZIP archives) ready for installation.
 - `docs/`: **Documentation.** Human-friendly guides and references for each skill.
+- `.claude/skills/`: Claude Code skills scoped to this repo only, independent of the Gemini `.gemini/skills/` catalog above (see `CLAUDE.md`).
 - `LICENSE`: The project is licensed under **GPL-3.0**.
 
 ## 🛠 Available Skills
@@ -57,7 +58,7 @@ for f in dist/*.skill; do gemini skills install "$f" --consent; done
 **Link source skills (For Developers):**
 To link the uncompressed source directories directly (useful for local development without building):
 ```bash
-gemini skills link ./skills
+gemini skills link ./.gemini/skills
 ```
 
 ### Activating Skills
@@ -71,7 +72,7 @@ activate_skill({ name: "start-worktree" })
 
 If you want to modify a skill or add a new one:
 
-1.  Modify the source files in `skills/<skill-name>/`.
+1.  Modify the source files in `.gemini/skills/<skill-name>/`.
 2.  **Validate** your changes using the test suite:
     ```bash
     mise run test

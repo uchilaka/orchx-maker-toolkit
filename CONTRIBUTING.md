@@ -17,7 +17,7 @@ We'd love to accept your patches and contributions to this project!
 ## 🛠 Development Workflow
 
 1.  **Create a new branch** for your feature or fix.
-2.  **Make your changes** in the `skills/` directory.
+2.  **Make your changes** in the `.gemini/skills/` directory.
 3.  **Run the test suite** to ensure your skills are valid:
     ```bash
     mise run test
