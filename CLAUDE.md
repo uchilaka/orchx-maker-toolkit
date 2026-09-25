@@ -1,4 +1,4 @@
-# Gemini Coder Toolkit — Claude Code Context
+# OrchX Maker Toolkit — Claude Code Context
 
 This repo is a **Gemini CLI** skill distribution toolkit. See `GEMINI.md` for the project's mission, sprint history, and progress tracker — that file is Gemini's own working context doc and stays Gemini-scoped.
 

@@ -1,4 +1,4 @@
-# 🎨 Gemini Coder Toolkit Style Guide
+# 🎨 OrchX Maker Toolkit Style Guide
 
 This document defines the standards for visual, documentation, and code style within this repository. Adherence to these rules ensures consistency and professional quality.
 

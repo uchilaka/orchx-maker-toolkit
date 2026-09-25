@@ -1,4 +1,4 @@
-# 🛠 Project Context: Gemini Coder Toolkit
+# 🛠 Project Context: OrchX Maker Toolkit
 
 > **Status:** Refactoring for Open Source / Distribution
 > **Current Version:** v0.7.0-alpha
@@ -38,6 +38,7 @@
 - [x] **Backport Latest Improvements:** Integrated Git Crypt support in `start-worktree` and robust MD5 tracking in `import-profile`.
 - [x] **GA Transition:** Created `/path-to-ga` skill, refactored core scripts for security and portability, and de-personalized global configurations.
 - [x] **Compatibility Reviewer:** Added a new `/specialist` sub-agent for macOS/WSL2/mise compatibility audits.
+- [x] **Rename to `orchx-maker-toolkit`:** GitHub repo, docs and the VS Code workspace now use the new name; display name is "OrchX Maker Toolkit".
 
 ---
 

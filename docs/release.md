@@ -1,6 +1,6 @@
 # Release Skill
 
-The `/release` skill automates the complex and error-prone process of cutting a new version of the Gemini Coder Toolkit. It ensures that all metadata, changelogs, and build artifacts are updated consistently before committing and tagging the repository.
+The `/release` skill automates the complex and error-prone process of cutting a new version of the OrchX Maker Toolkit. It ensures that all metadata, changelogs, and build artifacts are updated consistently before committing and tagging the repository.
 
 ## Workflow
 

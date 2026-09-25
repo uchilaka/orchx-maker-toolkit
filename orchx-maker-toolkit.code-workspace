@@ -12,6 +12,8 @@
         "useBundler": true
       }
     },
-    "terminal.integrated.fontSize": 14
+    "terminal.integrated.fontSize": 14,
+    "claudeCode.useTerminal": false,
+    "claudeCode.initialPermissionMode": "plan",
   }
 }

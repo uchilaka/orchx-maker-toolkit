@@ -1,4 +1,4 @@
-# Contributing to Gemini Coder Toolkit
+# Contributing to OrchX Maker Toolkit
 
 We'd love to accept your patches and contributions to this project!
 
@@ -7,11 +7,12 @@ We'd love to accept your patches and contributions to this project!
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/google/gemini-coder-toolkit.git
+    git clone https://github.com/uchilaka/orchx-maker-toolkit.git
     ```
 3.  **Install tooling**:
     ```bash
-    mise install
+    mise run bundle   # Homebrew dependencies, including gemini-cli and gitleaks
+    mise install      # pinned tools, extensions, and the shared git hooks
     ```
 
 ## 🛠 Development Workflow
@@ -24,6 +25,7 @@ We'd love to accept your patches and contributions to this project!
     ```
 4.  **Commit your changes** using semantic commit messages (e.g., `feat:`, `fix:`, `docs:`).
 5.  **Push your branch** and open a Pull Request.
+6.  **Request a Claude review** (optional) by commenting `@claude review` on the PR. Reviews never run automatically; see [docs/claude-github-actions.md](docs/claude-github-actions.md).
 
 ## 🧩 Adding a Skill
 

@@ -5,7 +5,7 @@ description: Analyzes project skills, global skills, and GEMINI.md to optimize t
 
 # 🚀 Path to GA
 
-This skill is designed to transition the optimized consolidation of project skills, global skills and the current state of the `gemini-coder-toolkit` from a personal project to a robust, public-facing toolkit.
+This skill is designed to transition the optimized consolidation of project skills, global skills and the current state of the `orchx-maker-toolkit` from a personal project to a robust, public-facing toolkit.
 
 ## Workflow
 
