@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "orchx-maker-toolkit",
+  "description": "Claude Code skills and agents from the OrchX Maker Toolkit",
+  "owner": { "name": "Uchenna Chilaka", "url": "https://github.com/uchilaka" },
+  "plugins": [
+    {
+      "name": "orchx-maker",
+      "source": "./",
+      "description": "Claude-native skills from the OrchX Maker Toolkit",
+      "skills": ["./.claude/skills/patch-my-hosts"]
+    }
+  ]
+}
