@@ -94,6 +94,18 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `browser-test-assist`)
+can be installed for use from any project, as symlinks back to this checkout:
+
+```sh
+mise run install:claude-global                       # all repo-local skills
+mise run install:claude-global browser-test-assist   # just one
+mise run uninstall:claude-global browser-test-assist
+```
+
+See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
+checkout rather than a worktree.
+
 ## ⚖️ License
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](./LICENSE) file for details.
