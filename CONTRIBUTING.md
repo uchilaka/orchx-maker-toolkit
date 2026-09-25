@@ -24,6 +24,7 @@ We'd love to accept your patches and contributions to this project!
     ```
 4.  **Commit your changes** using semantic commit messages (e.g., `feat:`, `fix:`, `docs:`).
 5.  **Push your branch** and open a Pull Request.
+6.  **Request a Claude review** (optional) by commenting `@claude review` on the PR. Reviews never run automatically; see [docs/claude-github-actions.md](docs/claude-github-actions.md).
 
 ## ⚖️ License
 
