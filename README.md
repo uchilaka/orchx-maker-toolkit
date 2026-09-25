@@ -31,15 +31,27 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 ## 🚀 Installation & Usage
 
 ### Prerequisites
-Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/):
+<!-- TODO(LAR-371): `mise run bundle` also fires postinstall, so the ordering rationale below is not quite accurate. -->
+Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/) and Homebrew. Run these in order — the second step depends on binaries the first one installs:
 ```bash
-mise install
+mise run bundle   # Homebrew dependencies from the Brewfile: gemini-cli, gitleaks, git-crypt, …
+mise install      # pinned node/direnv, then the postinstall hook
 ```
-This provisions the pinned `node`/`direnv` versions and, via a `postinstall` hook, installs the external Gemini CLI extensions this toolkit depends on. To (re)run that extension install explicitly:
-```bash
-mise run install:extensions
-```
-*(Or run `gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent` directly)*
+The `postinstall` hook runs two tasks, each of which can be re-run on its own:
+- `mise run install:extensions` installs the external Gemini CLI extensions this toolkit depends on *(or run `gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent` directly)*.
+- `mise run install:hooks` turns on the repo's shared git hooks (see below).
+
+### Git Hooks
+Hooks live in the tracked `.githooks/` directory, so everyone gets the same ones from a normal clone or pull. `mise run install:hooks` sets `core.hooksPath` to `.githooks`. The setting is shared by every worktree of the checkout and the path is relative, so each worktree runs the hooks from its own branch — a branch cut before `.githooks/` existed has no hooks, and git skips them silently. To add a hook, commit an executable file named after the git hook (e.g. `.githooks/commit-msg`).
+
+| Hook         | What it does                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| `pre-commit` | Scans staged changes with `gitleaks` and blocks the commit if it finds a secret (redacted). |
+
+The `pre-commit` hook fails closed: if `gitleaks` isn't installed, the commit is refused until you run `mise run bundle`. To get past a false positive, use `git commit --no-verify` for one commit, or add a `gitleaks:allow` comment to the offending line.
+
+<!-- TODO(LAR-374): deduplicate with Future Work and compress the migration steps there. -->
+*Why not husky?* Husky installs from npm, and this repo has no `package.json` (it was removed in `3d533dd` because there were no npm dependencies). A tracked hooks directory plus a mise task gives the same auto-install with no extra dependency. See [Future Work](#future-work) for when that changes.
 
 ### Installing Skills
 You can install these skills into your Gemini CLI environment using the built `.skill` files in the `dist/` directory.
@@ -93,6 +105,10 @@ mise run test:claude
 This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's frontmatter,
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
+
+### Future Work
+
+- **Revisit husky if `package.json` comes back.** Once the repo has npm dependencies again, husky costs nothing extra: its `prepare` script installs the hooks on `npm install`, and it fits with npm-based hook tooling like `lint-staged` (checking only staged files) or `commitlint` (enforcing the semantic commit format in `CONTRIBUTING.md`). Wanting either of those is the signal. Migrating means moving `.githooks/*` into `.husky/`, removing the `install:hooks` mise task and its `postinstall` call, and rewriting the [Git Hooks](#git-hooks) section. Until then, `.githooks/` does the same job without npm.
 
 ## ⚖️ License
 
