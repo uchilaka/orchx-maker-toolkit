@@ -31,6 +31,7 @@ The **Gemini Coder Toolkit** aims to provide a canonical, open-source distributi
 ## 🚀 Installation & Usage
 
 ### Prerequisites
+<!-- TODO(LAR-371): `mise run bundle` also fires postinstall, so the ordering rationale below is not quite accurate. -->
 Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/) and Homebrew. Run these in order — the second step depends on binaries the first one installs:
 ```bash
 mise run bundle   # Homebrew dependencies from the Brewfile: gemini-cli, gitleaks, git-crypt, …
@@ -41,7 +42,7 @@ The `postinstall` hook runs two tasks, each of which can be re-run on its own:
 - `mise run install:hooks` turns on the repo's shared git hooks (see below).
 
 ### Git Hooks
-Hooks live in the tracked `.githooks/` directory, so everyone gets the same ones from a normal clone or pull. `mise run install:hooks` sets `core.hooksPath` to `.githooks`. The path is relative, so it also works in every worktree of the checkout. To add a hook, commit an executable file named after the git hook (e.g. `.githooks/commit-msg`).
+Hooks live in the tracked `.githooks/` directory, so everyone gets the same ones from a normal clone or pull. `mise run install:hooks` sets `core.hooksPath` to `.githooks`. The setting is shared by every worktree of the checkout and the path is relative, so each worktree runs the hooks from its own branch — a branch cut before `.githooks/` existed has no hooks, and git skips them silently. To add a hook, commit an executable file named after the git hook (e.g. `.githooks/commit-msg`).
 
 | Hook         | What it does                                                                                |
 | ------------ | ------------------------------------------------------------------------------------------- |
@@ -49,6 +50,7 @@ Hooks live in the tracked `.githooks/` directory, so everyone gets the same ones
 
 The `pre-commit` hook fails closed: if `gitleaks` isn't installed, the commit is refused until you run `mise run bundle`. To get past a false positive, use `git commit --no-verify` for one commit, or add a `gitleaks:allow` comment to the offending line.
 
+<!-- TODO(LAR-374): deduplicate with Future Work and compress the migration steps there. -->
 *Why not husky?* Husky installs from npm, and this repo has no `package.json` (it was removed in `3d533dd` because there were no npm dependencies). A tracked hooks directory plus a mise task gives the same auto-install with no extra dependency. See [Future Work](#future-work) for when that changes.
 
 ### Installing Skills

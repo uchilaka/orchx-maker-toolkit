@@ -10,6 +10,8 @@ run = "brew bundle"
 description = "Install the Gemini CLI ralph extension"
 run = "gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent"
 
+# TODO(LAR-370): a tracked hooksPath runs whatever hooks the checked-out branch
+# carries; decide the trust model before accepting outside contributors.
 [tasks."install:hooks"]
 description = "Point git at the tracked .githooks/ directory (gitleaks pre-commit scan)"
 run = "git config core.hooksPath .githooks"
@@ -23,4 +25,7 @@ description = "Package .gemini/skills/* into dist/*.skill archives"
 run = "rm -rf dist && mkdir -p dist && for d in .gemini/skills/*; do if [ -d \"$d\" ]; then skill_name=$(basename \"$d\"); echo \"Packaging ${skill_name}...\"; (cd \"$d\" && zip -rq \"../../../dist/${skill_name}.skill\" .); fi; done"
 
 [hooks]
-postinstall = "mise run install:extensions && mise run install:hooks"
+# `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is
+# already installed, which would otherwise skip install:hooks on every machine
+# that has run setup before, and mise only warns on a failed postinstall.
+postinstall = "mise run install:hooks; mise run install:extensions"
