@@ -1,3 +1,8 @@
+# Dependencies
+# mise pins node for the skill validator; there is no package.json, but ignore
+# node_modules/ in case a script pulls packages in locally.
+node_modules/
+
 # Testing
 coverage/
 
@@ -17,7 +22,11 @@ coverage/
 .claude/skills/*
 !.claude/skills/patch-my-hosts
 
-# Local configuration files
+# Local configuration files (dotenv)
+# Follows the dotenv convention: .env.<environment> holds shared defaults and is
+# committable; only *.local overrides are machine-specific. .env itself is
+# ignored because .envrc uses it for per-checkout settings (e.g. MISE_ENV) that
+# differ between worktrees.
 .env
 .env.local
 .env.*.local
