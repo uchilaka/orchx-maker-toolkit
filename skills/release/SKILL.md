@@ -22,7 +22,7 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
     - **Do not proceed** to the next steps until the user explicitly directs you to continue the release.
 
 3.  **Pre-flight Checks:**
-    - Run `yarn test` or `npm run validate` if defined in `package.json`.
+    - Run `mise run test`.
     - If any tests or validations fail, abort the process and report the errors.
 
 4.  **State Verification:**
@@ -43,15 +43,16 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
     - Ask for a brief summary of **key changes** for the `CHANGELOG.md`.
 
 7.  **Update Metadata:**
-    - Update the `"version"` field in `package.json`.
-    - Update the `Current Version` and `Last Sync` date in `GEMINI.md`.
+    - Update the `Current Version` and `Last Sync` date in `GEMINI.md`. There is no
+      `package.json`; `GEMINI.md`, the `CHANGELOG.md` heading and the git tag are the
+      only places the version lives.
 
 8.  **Draft Changelog:**
     - Prepend the new release notes to `CHANGELOG.md` following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standard.
     - Use the format: `## [X.Y.Z] - YYYY-MM-DD`.
 
 9.  **Build & Package:**
-    - Run `npm run build` to refresh all `.skill` artifacts in the `dist/` directory.
+    - Run `mise run build:gemini` to refresh all `.skill` artifacts in the `dist/` directory.
 
 10. **Commit & Tag:**
     - Stage all changes (`git add .`).
@@ -62,5 +63,5 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 ## Safety Guidelines
 
 - **Atomic Changes:** Ensure all metadata, changelog, and build artifacts are updated in the same commit.
-- **Verification First:** Never proceed to the commit step if the `npm run build` step fails.
+- **Verification First:** Never proceed to the commit step if the `mise run build:gemini` step fails.
 - **Explicit Confirmation:** Summarize the proposed changes (version, changelog entry) and ask for one final confirmation before pushing to the remote.

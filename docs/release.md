@@ -10,7 +10,7 @@ The `/release` skill automates the complex and error-prone process of cutting a 
 4.  **Summary:** Summarizes unreleased changes from the git history.
 5.  **Coordination:** Prompts the user for the new version number and release notes, informed by the specialist review findings.
 6.  **Automation:**
-    *   Updates `package.json` and `GEMINI.md`.
+    *   Updates the version in `GEMINI.md` and `CHANGELOG.md`.
     *   Drafts the `CHANGELOG.md`.
     *   Regenerates all `.skill` files in `dist/`.
 7.  **Finalization:** Creates a semantic commit, generates a git tag, and pushes everything to the remote.
