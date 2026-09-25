@@ -32,9 +32,17 @@ run = "for d in .gemini/skills/*/; do name=$(basename \"$d\"); target=\".claude/
 description = "Remove the .claude/skills/ symlinks created by mount:claude, leaving real Claude-native skills untouched"
 run = "for f in .claude/skills/*/; do name=$(basename \"$f\"); target=\".claude/skills/$name\"; if [ -L \"$target\" ]; then rm \"$target\"; echo \"unmounted $name\"; fi; done"
 
+[tasks."install:claude-global"]
+description = "Symlink this repo's Claude-native skills into ~/.claude/skills/ (all, or the names given: mise run install:claude-global browser-test-assist)"
+run = "bash scripts/claude-global-skill.sh install"
+
+[tasks."uninstall:claude-global"]
+description = "Remove ~/.claude/skills/ symlinks that point into this repo (all, or the names given)"
+run = "bash scripts/claude-global-skill.sh uninstall"
+
 [tasks."test:claude"]
-description = "Self-test the validator against fixtures, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
-run = "node --test scripts/validate_claude_skills.selftest.cjs || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
+description = "Self-test the validator and the global-install script, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
+run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
 
 [hooks]
 # `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is

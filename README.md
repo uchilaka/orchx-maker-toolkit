@@ -106,6 +106,18 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `browser-test-assist`)
+can be installed for use from any project, as symlinks back to this checkout:
+
+```sh
+mise run install:claude-global                       # all repo-local skills
+mise run install:claude-global browser-test-assist   # just one
+mise run uninstall:claude-global browser-test-assist
+```
+
+See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
+checkout rather than a worktree.
+
 ### Future Work
 
 - **Revisit husky if `package.json` comes back.** Once the repo has npm dependencies again, husky costs nothing extra: its `prepare` script installs the hooks on `npm install`, and it fits with npm-based hook tooling like `lint-staged` (checking only staged files) or `commitlint` (enforcing the semantic commit format in `CONTRIBUTING.md`). Wanting either of those is the signal. Migrating means moving `.githooks/*` into `.husky/`, removing the `install:hooks` mise task and its `postinstall` call, and rewriting the [Git Hooks](#git-hooks) section. Until then, `.githooks/` does the same job without npm.
