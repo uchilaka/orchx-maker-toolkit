@@ -1,4 +1,4 @@
-# Gemini Coder Toolkit — Claude Code Context
+# OrchX Maker Toolkit — Claude Code Context
 
 This repo is a **Gemini CLI** skill distribution toolkit. See `GEMINI.md` for the project's mission, sprint history, and progress tracker — that file is Gemini's own working context doc and stays Gemini-scoped.
 
@@ -14,4 +14,26 @@ Your actual day-to-day Claude Code skill catalog (`bootstrap-worktree`, `summon-
 
 - Changes to Gemini skill behavior: edit `.gemini/skills/<name>/SKILL.md`, then `mise run build:gemini` and `mise run test` (validates every skill via the `gemini-cli` Homebrew validator).
 - Changes to the repo-local `patch-my-hosts` Claude skill: edit `.claude/skills/patch-my-hosts/` directly — no build step.
-- Do not port or rename `.gemini/skills/*` into `.claude/skills/*`. A straight mirror would create conflicting/duplicate concepts against the global Claude toolkit.
+- Do not port or rename `.gemini/skills/*` into `.claude/skills/*` by hand-copying files. A straight file-level mirror would create conflicting/duplicate concepts against the global Claude toolkit. The mount tasks below are the one sanctioned exception: they symlink, never copy, so there's still exactly one source file per skill.
+
+### Mounting Gemini skills as Claude Code skills
+
+Because `SKILL.md`'s frontmatter format is Claude-Code-compatible, every skill under
+`.gemini/skills/` can also be exercised as a Claude Code skill without duplicating its
+source:
+
+- `mise run mount:claude` — symlinks each `.gemini/skills/<name>` into
+  `.claude/skills/<name>`. Real, Claude-native skills already in `.claude/skills/`
+  (currently `patch-my-hosts`) are left untouched — the task skips any target that
+  exists and isn't itself a symlink.
+- `mise run unmount:claude` — removes only the symlinks the mount created.
+- `mise run test:claude` — first runs `scripts/validate_claude_skills.selftest.cjs`, which
+  proves the validator rejects the broken skills in `scripts/fixtures/claude-skills/`,
+  then mounts, runs `scripts/validate_claude_skills.test.cjs`
+  against everything under `.claude/skills/` (checking `SKILL.md` has the `name` and
+  `description` frontmatter Claude Code requires, and that `name` matches the directory),
+  then unmounts — a clean, self-contained pass regardless of the outcome.
+
+Mounted symlinks are gitignored (`.gitignore` ignores `.claude/skills/*` except the
+explicitly allowlisted real skills), so `mount:claude` never needs to be run before a
+commit and never shows up as a diff.

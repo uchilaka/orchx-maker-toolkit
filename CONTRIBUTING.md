@@ -1,4 +1,4 @@
-# Contributing to Gemini Coder Toolkit
+# Contributing to OrchX Maker Toolkit
 
 We'd love to accept your patches and contributions to this project!
 
@@ -7,7 +7,7 @@ We'd love to accept your patches and contributions to this project!
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/google/gemini-coder-toolkit.git
+    git clone https://github.com/uchilaka/orchx-maker-toolkit.git
     ```
 3.  **Install tooling**:
     ```bash
