@@ -18,5 +18,17 @@ run = "node scripts/validate_skills.test.cjs"
 description = "Package .gemini/skills/* into dist/*.skill archives"
 run = "rm -rf dist && mkdir -p dist && for d in .gemini/skills/*; do if [ -d \"$d\" ]; then skill_name=$(basename \"$d\"); echo \"Packaging ${skill_name}...\"; (cd \"$d\" && zip -rq \"../../../dist/${skill_name}.skill\" .); fi; done"
 
+[tasks."mount:claude"]
+description = "Symlink .gemini/skills/* into .claude/skills/ so they're discoverable as Claude Code skills too"
+run = "for d in .gemini/skills/*/; do name=$(basename \"$d\"); target=\".claude/skills/$name\"; if [ -e \"$target\" ] && [ ! -L \"$target\" ]; then echo \"skip $name (real directory, not a mount)\"; continue; fi; ln -sfn \"../../.gemini/skills/$name\" \"$target\"; echo \"mounted $name\"; done"
+
+[tasks."unmount:claude"]
+description = "Remove the .claude/skills/ symlinks created by mount:claude, leaving real Claude-native skills untouched"
+run = "for f in .claude/skills/*/; do name=$(basename \"$f\"); target=\".claude/skills/$name\"; if [ -L \"$target\" ]; then rm \"$target\"; echo \"unmounted $name\"; fi; done"
+
+[tasks."test:claude"]
+description = "Self-test the validator against fixtures, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
+run = "node --test scripts/validate_claude_skills.selftest.cjs || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
+
 [hooks]
 postinstall = "mise run install:extensions"
