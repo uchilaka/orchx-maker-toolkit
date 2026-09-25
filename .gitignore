@@ -17,9 +17,10 @@ coverage/
 .gemini/logs/
 
 # Local configuration files (dotenv)
-# Every .env variant holds machine- or environment-specific values, so none are
-# committed. Share required keys through .env.example instead. .envrc is tracked
-# on purpose and is not matched here: it only loads these files.
+# Follows the dotenv convention: .env.<environment> holds shared defaults and is
+# committable; only *.local overrides are machine-specific. .env itself is
+# ignored because .envrc uses it for per-checkout settings (e.g. MISE_ENV) that
+# differ between worktrees.
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
