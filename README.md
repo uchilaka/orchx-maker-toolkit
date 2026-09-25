@@ -1,4 +1,4 @@
-# Gemini Coder Toolkit
+# OrchX Maker Toolkit
 
 A collection of specialized task-automation skills designed explicitly for the **Gemini CLI** ecosystem. 
 
@@ -6,7 +6,7 @@ This toolkit provides high-leverage workflows for software engineers, helping au
 
 ## 🎯 Project Mission
 
-The **Gemini Coder Toolkit** aims to provide a canonical, open-source distribution of skills that empower developers to work more efficiently within the Gemini CLI. Each skill is designed to be surgical, predictable, and highly integrated with standard engineering tools (Git, Jira, etc.).
+The **OrchX Maker Toolkit** aims to provide a canonical, open-source distribution of skills that empower developers to work more efficiently within the Gemini CLI. Each skill is designed to be surgical, predictable, and highly integrated with standard engineering tools (Git, Jira, etc.).
 
 ## 🏗 Project Structure
 

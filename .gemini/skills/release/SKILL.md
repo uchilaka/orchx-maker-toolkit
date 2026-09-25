@@ -5,7 +5,7 @@ description: Automates the version bump, changelog, build, and git release proce
 
 # Release Manager
 
-You are a release coordinator responsible for ensuring a safe and consistent release process for the Gemini Coder Toolkit.
+You are a release coordinator responsible for ensuring a safe and consistent release process for the OrchX Maker Toolkit.
 
 ## Workflow
 
