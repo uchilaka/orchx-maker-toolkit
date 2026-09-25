@@ -10,6 +10,10 @@ run = "brew bundle"
 description = "Install the Gemini CLI ralph extension"
 run = "gemini extensions install https://github.com/gemini-cli-extensions/ralph --auto-update --consent"
 
+[tasks."install:hooks"]
+description = "Point git at the tracked .githooks/ directory (gitleaks pre-commit scan)"
+run = "git config core.hooksPath .githooks"
+
 [tasks.test]
 description = "Validate all skills via the gemini-cli Homebrew skill validator"
 run = "node scripts/validate_skills.test.cjs"
@@ -19,4 +23,4 @@ description = "Package .gemini/skills/* into dist/*.skill archives"
 run = "rm -rf dist && mkdir -p dist && for d in .gemini/skills/*; do if [ -d \"$d\" ]; then skill_name=$(basename \"$d\"); echo \"Packaging ${skill_name}...\"; (cd \"$d\" && zip -rq \"../../../dist/${skill_name}.skill\" .); fi; done"
 
 [hooks]
-postinstall = "mise run install:extensions"
+postinstall = "mise run install:extensions && mise run install:hooks"

@@ -11,7 +11,8 @@ We'd love to accept your patches and contributions to this project!
     ```
 3.  **Install tooling**:
     ```bash
-    mise install
+    mise run bundle   # Homebrew dependencies, including gemini-cli and gitleaks
+    mise install      # pinned tools, extensions, and the shared git hooks
     ```
 
 ## 🛠 Development Workflow

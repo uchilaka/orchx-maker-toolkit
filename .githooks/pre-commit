@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Blocks commits that stage a secret. Installed by `mise run install:hooks`,
+# which points core.hooksPath at this directory.
+#
+# Fails closed when gitleaks is missing: a secret scanner that silently skips
+# is worse than none, since it looks like protection. Bypass a false positive
+# per-commit with `git commit --no-verify`, or permanently with a
+# `gitleaks:allow` comment on the offending line.
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not found. Install it with \`mise run bundle\`." >&2
+  exit 1
+fi
+
+# --redact keeps the matched secret out of terminal scrollback and CI logs.
+exec gitleaks git --pre-commit --staged --redact --no-banner --verbose
