@@ -25,7 +25,8 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 | `import-profile` | Syncs global preferences and memory from external profiles. | [Docs](./docs/import-profile.md) |
 | `llm-wikify` | Claude Code: scaffolds a Karpathy-style LLM-maintained wiki (sources, wiki, schema) in any repo. | [Docs](./docs/llm-wikify.md) |
 | `markdown-manager` | Enforces documentation standards and manages planning artifacts. | [Docs](./docs/markdown-manager.md) |
-| `release` | Automates the version bump, changelog, build, and git release process. | [Docs](./docs/release.md) |
+| `publish-prep` | Checks skills, agents and scripts for secrets, personal paths, frontmatter and undeclared dependencies before they're shared, then proposes fixes for approval. | [Docs](./docs/publish-prep.md) |
+| `release` | Automates the version bump, changelog, build, and git release process, gated on `publish-prep`. | [Docs](./docs/release.md) |
 | `specialist` | Orchestrates expert code, architecture, security, design, and devops reviews. | [Docs](./docs/specialist.md) |
 | `start-worktree` | Scaffolds isolated work environments for new Jira tickets. | [Docs](./docs/start-worktree.md) |
 | `summon-profile` | Synchronizes local profile with remote machines via scp. | [Docs](./docs/summon-profile.md) |
@@ -104,7 +105,11 @@ If you want to modify a skill or add a new one:
     ```bash
     mise run build:gemini
     ```
-4.  The updated `.skill` files will be available in the `dist/` folder.
+4.  Check that nothing personal or machine-specific is about to ship (the same gate `/release` runs):
+    ```bash
+    mise run publish-prep
+    ```
+5.  The updated `.skill` files will be available in the `dist/` folder.
 
 To publish a new Claude-native skill, add it in three places: its directory under `.claude/skills/`, a `!` allowlist line in `.gitignore`, and its path in the `skills` array of `.claude-plugin/marketplace.json`. That array is an explicit allowlist, so a skill that isn't in it doesn't ship. Then validate:
 ```bash
