@@ -1,0 +1,5 @@
+{
+  "internalDomains": ["larcity.tech", "larcity.dev"],
+  "personalPaths": ["/opt/Developer"],
+  "personalConventions": ["~/project-plans", "~/pr-reviews", "~/.claude/projects"]
+}

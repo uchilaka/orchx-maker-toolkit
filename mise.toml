@@ -17,8 +17,16 @@ description = "Point git at the tracked .githooks/ directory (gitleaks pre-commi
 run = "git config core.hooksPath .githooks"
 
 [tasks.test]
-description = "Validate all skills via the gemini-cli Homebrew skill validator"
-run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs"
+description = "Validate all skills via the gemini-cli Homebrew skill validator, then self-test publish-prep"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs"
+
+[tasks."test:publish-prep"]
+description = "Self-test publish-prep against its fixtures: each check must catch the problem seeded for it"
+run = "node --test scripts/publish_prep.selftest.cjs"
+
+[tasks."publish-prep"]
+description = "Check publishable skills, agents and scripts for secrets, personal paths, frontmatter and undeclared dependencies; exits 1 on any high finding. Pass paths to check just those"
+run = "node scripts/publish_prep.cjs"
 
 [tasks."build:gemini"]
 description = "Package .gemini/skills/* into dist/*.skill archives"
