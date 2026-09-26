@@ -14,6 +14,7 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 - `dist/`: **Distribution.** Versioned `.skill` files (ZIP archives) ready for installation.
 - `docs/`: **Documentation.** Human-friendly guides and references for each skill.
 - `.claude/skills/`: Claude Code skills scoped to this repo only, independent of the Gemini `.gemini/skills/` catalog above (see `CLAUDE.md`).
+- `.claude-plugin/`: **Claude Code distribution.** A plugin marketplace that publishes the Claude-native skills from `.claude/skills/`.
 - `LICENSE`: The project is licensed under **GPL-3.0**.
 
 ## 🛠 Available Skills
@@ -73,6 +74,15 @@ To link the uncompressed source directories directly (useful for local developme
 gemini skills link ./.gemini/skills
 ```
 
+### Installing the Claude Code plugin
+
+The repo's Claude-native skills (currently `patch-my-hosts`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
+```bash
+claude plugin marketplace add uchilaka/orchx-maker-toolkit
+claude plugin install orchx-maker@orchx-maker-toolkit
+```
+The Gemini skills above are not part of the plugin. Several share a name with a different skill in a typical Claude Code setup, so they stay Gemini-only.
+
 ### Activating Skills
 Once installed, activate a skill within a Gemini CLI session:
 
@@ -94,6 +104,11 @@ If you want to modify a skill or add a new one:
     mise run build:gemini
     ```
 4.  The updated `.skill` files will be available in the `dist/` folder.
+
+To publish a new Claude-native skill, add it in three places: its directory under `.claude/skills/`, a `!` allowlist line in `.gitignore`, and its path in the `skills` array of `.claude-plugin/marketplace.json`. That array is an explicit allowlist, so a skill that isn't in it doesn't ship. Then validate:
+```bash
+mise run build:claude
+```
 
 ### Testing skills as Claude Code skills
 

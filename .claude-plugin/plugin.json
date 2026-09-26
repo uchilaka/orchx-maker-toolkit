@@ -1,0 +1,6 @@
+{
+  "name": "orchx-maker",
+  "version": "0.7.0-alpha",
+  "description": "Claude-native skills from the OrchX Maker Toolkit",
+  "author": { "name": "Uchenna Chilaka" }
+}
