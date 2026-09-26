@@ -7,7 +7,7 @@ const path = require('path');
 
 // PUBLISH_PREP_BIN lets a run point this suite at a deliberately broken copy of
 // the script, to prove each test fails when its check is stubbed out.
-const SCRIPT = process.env.PUBLISH_PREP_BIN || path.join(__dirname, 'publish_prep.cjs');
+const SCRIPT = process.env.PUBLISH_PREP_BIN || path.join(__dirname, '..', '.gemini', 'skills', 'publish-prep', 'scripts', 'publish_prep.cjs');
 const FIXTURES = path.join(__dirname, 'fixtures', 'publish-prep');
 const CONFIG = path.join(FIXTURES, 'publish-prep.json');
 

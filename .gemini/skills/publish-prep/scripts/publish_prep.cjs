@@ -4,11 +4,12 @@
 // /publish-prep skill proposes fixes, and this script only finds problems, so
 // the /release gate gets the same answer every run.
 //
-//   node scripts/publish_prep.cjs [--json] [--config <file>] [--root <dir>]
+//   node <skill-dir>/scripts/publish_prep.cjs [--json] [--config <file>] [--root <dir>]
 //                                 [--no-gitleaks] [--all | <path>...]
 //
 // With no paths it checks everything a release publishes (--all), which is
-// what `mise run publish-prep` does.
+// what `mise run publish-prep` does. --root defaults to the git repo containing
+// the current directory, so run it from the repo you're preparing.
 //
 // Exit codes: 0 = nothing blocking, 1 = at least one un-allowed `high` finding,
 // 2 = usage error.
@@ -95,8 +96,13 @@ function parseArgs(argv) {
   }
   if (opts.paths.length === 0) opts.all = true;
   if (opts.all && opts.paths.length) usage('pass --all or paths, not both');
-  opts.root = path.resolve(opts.root || path.join(__dirname, '..'));
+  opts.root = path.resolve(opts.root || gitRoot() || process.cwd());
   return opts;
+}
+
+function gitRoot() {
+  const res = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  return res.status === 0 ? res.stdout.trim() : null;
 }
 
 function usage(msg) {
@@ -225,8 +231,8 @@ function checkSecretsRegex(ctx, useTokenFallback) {
       const m = line.match(re);
       if (m) add('secrets', 'high', n, `internal domain ${m[0]} (${domain})`, 'replace with a placeholder domain');
     }
-    // Private IPs are medium, not high: docs often show a router default like
-    // 192.168.1.1, which leaks nothing.
+    // Private IPs are medium, not high: docs often show a home router's
+    // default address, which leaks nothing.
     const ip = line.match(/\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b/);
     if (ip) add('secrets', 'medium', n, `private IP address ${ip[0]}`, 'use a placeholder unless it is a well-known default');
     if (useTokenFallback) {

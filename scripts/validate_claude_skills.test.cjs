@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const { parseFrontmatter } = require('./lib/frontmatter.cjs');
+// The parser ships inside the publish-prep skill so its packaged .skill works
+// on its own; this validator borrows it rather than keeping a second copy.
+const { parseFrontmatter } = require('../.gemini/skills/publish-prep/scripts/lib/frontmatter.cjs');
 
 const SKILLS_DIR = process.argv[2]
   ? path.resolve(process.argv[2])

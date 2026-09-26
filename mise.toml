@@ -26,7 +26,7 @@ run = "node --test scripts/publish_prep.selftest.cjs"
 
 [tasks."publish-prep"]
 description = "Check publishable skills, agents and scripts for secrets, personal paths, frontmatter and undeclared dependencies; exits 1 on any high finding. Pass paths to check just those"
-run = "node scripts/publish_prep.cjs"
+run = "node .gemini/skills/publish-prep/scripts/publish_prep.cjs"
 
 [tasks."build:gemini"]
 description = "Package .gemini/skills/* into dist/*.skill archives"
