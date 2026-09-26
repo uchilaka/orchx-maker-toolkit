@@ -88,6 +88,15 @@ test('portability: a home path is high; a personal convention and an unknown ski
   assert.ok(p.every(f => Number.isInteger(f.line) && f.line > 0), 'every finding carries a line');
 });
 
+test('portability: a skill that references its own install path is high', () => {
+  const r = run([fixture('portability', 'self-path-skill')]);
+  assert.strictEqual(r.status, 1);
+  const own = findings(r.report, 'portability').filter(f => /own install path/.test(f.message));
+  assert.strictEqual(own.length, 2, JSON.stringify(own, null, 2));
+  assert.ok(own.every(f => f.severity === 'high'));
+  assert.ok(own.some(f => f.file.endsWith('SKILL.md')) && own.some(f => f.file.endsWith('run.sh')));
+});
+
 test('frontmatter: a name that does not match its directory is high', () => {
   const r = run([fixture('frontmatter', 'wrong-name')]);
   assert.strictEqual(r.status, 1);

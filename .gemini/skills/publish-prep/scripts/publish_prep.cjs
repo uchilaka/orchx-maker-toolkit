@@ -257,7 +257,11 @@ function runGitleaks(item) {
 }
 
 function checkPortability(ctx) {
-  const { lines, add, config, bundle } = ctx;
+  const { lines, add, config, bundle, self } = ctx;
+  // An item that points at its own install location breaks everywhere it's
+  // installed some other way: a plugin lives under a versioned cache path, and
+  // a Gemini extension under ~/.gemini/extensions/.
+  const ownPath = new RegExp(`(?:~|\\$HOME|\\$\\{HOME\\})/\\.(?:claude|gemini)/(?:skills|extensions|agents)/${escapeRe(self)}(?=/|\\.md\\b|\\s|$)`);
   const personalPaths = config.personalPaths.map(p => [p, new RegExp(`${escapeRe(p)}(?=/|\\b|$)`)]);
   const conventions = config.personalConventions.map(p => [p, new RegExp(`${escapeRe(p)}(?=/|\\b|$)`)]);
   lines.forEach((line, i) => {
@@ -265,6 +269,8 @@ function checkPortability(ctx) {
     for (const m of line.matchAll(/(?:\/Users|\/home)\/[A-Za-z0-9._-]+/g)) {
       add('portability', 'high', n, `absolute home path ${m[0]}`, 'use ~ or $HOME, or a <placeholder> the reader fills in');
     }
+    const own = line.match(ownPath);
+    if (own) add('portability', 'high', n, `${own[0]} references this item's own install path, which differs for plugin and extension installs`, 'use ${CLAUDE_SKILL_DIR} in SKILL.md, or a path relative to the script (dirname of BASH_SOURCE)');
     for (const [p, re] of personalPaths) {
       if (re.test(line)) add('portability', 'high', n, `machine-specific path ${p}`, 'use a path relative to the repo, or a <placeholder>');
     }
@@ -495,7 +501,7 @@ function checkItem(item, opts, config, bundle, notes, gitleaksState) {
     const lines = content.split('\n');
     const allowMap = allowances(lines, notes, display(file));
     allowByFile.set(path.resolve(file), allowMap);
-    const ctx = { file, content, lines, config, bundle, add: makeAdd(file, allowMap) };
+    const ctx = { file, content, lines, config, bundle, self: itemName(item), add: makeAdd(file, allowMap) };
     checkSecretsRegex(ctx, gitleaksResults === null);
     checkPortability(ctx);
     if (file === skillMd) checkFrontmatter(ctx, 'skill', item);
