@@ -18,7 +18,7 @@ run = "git config core.hooksPath .githooks"
 
 [tasks.test]
 description = "Validate all skills via the gemini-cli Homebrew skill validator"
-run = "node scripts/validate_skills.test.cjs"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs"
 
 [tasks."build:gemini"]
 description = "Package .gemini/skills/* into dist/*.skill archives"
