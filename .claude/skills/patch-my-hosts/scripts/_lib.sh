@@ -11,6 +11,14 @@ LATEST_LINK="$STATE_DIR/latest"
 LAST_FETCHED="$STATE_DIR/last-fetched"
 PENDING="$STATE_DIR/pending"
 LOG_DIR="$STATE_DIR/logs"
+# Stable copies of the scripts that launchd and the SessionStart hook run. The
+# skill directory can't be referenced directly: a plugin install lives under a
+# versioned path that changes (and is cleaned up) on every plugin update, so an
+# absolute path into it would silently break the weekly job.
+BIN_DIR="$STATE_DIR/bin"
+STABLE_SCRIPTS=(_lib.sh fetch-upstream.sh check-stale.sh)
+
+LAUNCH_AGENTS_DIR="${PATCH_MY_HOSTS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 
 HOSTS_FILE="${PATCH_MY_HOSTS_HOSTS_FILE:-/etc/hosts}"
 
