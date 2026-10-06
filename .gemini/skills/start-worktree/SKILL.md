@@ -7,6 +7,12 @@ description: Creates a new isolated git worktree for a JIRA ticket, generates a 
 
 Use this skill to set up an isolated development environment (git worktree) for a new task.
 
+## Requirements
+
+- `git-crypt` and `GITCRYPT_KEY_BASE64` (the base64-encoded git-crypt key), only for repos encrypted with git-crypt
+- `yarn` or `npm`, for Node projects
+- `mise`, if the repo has a `.mise.toml`
+
 ## 1. Gather Details
 - Ensure you have the JIRA ticket ID and a short slug description from the user.
 - If not provided, ask the user before proceeding.

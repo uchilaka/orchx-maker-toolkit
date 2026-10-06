@@ -16,7 +16,7 @@ Execute the following script to see what changed since the last review:
 ```bash
 bash ${extensionPath}/scripts/check-updates.sh
 ```
-*(Note: Replace `${extensionPath}` with the path to this skill's directory if you are running it manually, e.g., `bash ~/.gemini/extensions/import-profile/scripts/check-updates.sh` or `bash <path-to-skill>/scripts/check-updates.sh`)*
+*(Note: when running it manually, replace `${extensionPath}` with this skill's directory: `bash <path-to-skill>/scripts/check-updates.sh`)*
 
 ## 2. Review Changes
 

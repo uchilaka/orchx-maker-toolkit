@@ -18,4 +18,4 @@ Use this skill to finalize work in a git worktree and prepare a draft PR without
 - **DO NOT** use `gh pr create` or any CLI integrations to post the PR directly.
 
 ## 3. Update Checkpoint Doc
-- Overwrite the checkpoint doc at `~/.claude/projects/<project-key>/draft-prs/<jira-ticket>_<short-slug>.md` with the final PR content you just generated.
+- Overwrite the checkpoint doc at `~/.claude/projects/<project-key>/draft-prs/<jira-ticket>_<short-slug>.md` with the final PR content you just generated. <!-- publish-prep: allow portability — draft-prs/ is this toolkit's documented checkpoint location -->
