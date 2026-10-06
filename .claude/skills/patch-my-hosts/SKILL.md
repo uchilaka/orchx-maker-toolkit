@@ -19,7 +19,7 @@ Refresh the upstream hosts blocklist from https://someonewhocares.org/hosts/ int
 Run the main script. It will fetch the upstream into a weekly archive, build a patched candidate, show you a diff, and print the apply command:
 
 ```bash
-~/.claude/skills/patch-my-hosts/scripts/patch-my-hosts.sh
+${CLAUDE_SKILL_DIR}/scripts/patch-my-hosts.sh
 ```
 
 Common flags:
@@ -55,24 +55,24 @@ Asks you to confirm before generating output. Default insertion: at end of file,
 Install the weekly refresh job (user-level LaunchAgent, no root):
 
 ```bash
-~/.claude/skills/patch-my-hosts/scripts/install-launchd.sh
+${CLAUDE_SKILL_DIR}/scripts/install-launchd.sh
 ```
 
 This:
-- Schedules `fetch-upstream.sh` weekly (Sunday 03:30 local by default)
+- Copies `fetch-upstream.sh`, `check-stale.sh` and `_lib.sh` to `~/.local/share/patch-my-hosts/bin/`, and schedules that copy weekly (Sunday 03:30 local by default). The schedule never points into this skill's directory, because a plugin install lives under a versioned path that moves on every update. Re-run the installer after updating the skill to refresh the copies.
 - Writes a `pending` marker on successful fetch so `check-stale.sh` knows to nag
 
 Uninstall mirror:
 
 ```bash
-~/.claude/skills/patch-my-hosts/scripts/uninstall-launchd.sh
+${CLAUDE_SKILL_DIR}/scripts/uninstall-launchd.sh
 ```
 
 The LaunchAgent never touches `/etc/hosts` — it only refreshes the archive. The split (launchd fetches, you apply) is deliberate: no background daemon needs write access to `/etc/hosts`.
 
 ## SessionStart hook (optional)
 
-Surface a pending refresh in new Claude sessions. Add to `~/.claude/settings.json` via `/update-config`:
+Surface a pending refresh in new Claude sessions. Run the LaunchAgent installer above first: it puts `check-stale.sh` at the stable path the hook uses. Then add this to `~/.claude/settings.json` via `/update-config`:
 
 ```json
 {
@@ -80,7 +80,7 @@ Surface a pending refresh in new Claude sessions. Add to `~/.claude/settings.jso
     "SessionStart": [
       {
         "type": "command",
-        "command": "~/.claude/skills/patch-my-hosts/scripts/check-stale.sh"
+        "command": "~/.local/share/patch-my-hosts/bin/check-stale.sh"
       }
     ]
   }
@@ -102,6 +102,7 @@ Surface a pending refresh in new Claude sessions. Add to `~/.claude/settings.jso
 ├── latest -> archive/2026-W25.hosts   # symlink to newest
 ├── last-fetched                # ISO-8601 timestamp of last successful fetch
 ├── pending                     # marker; cleared after a successful apply
+├── bin/                        # stable script copies that launchd and the hook run
 └── logs/
     ├── launchd.stdout.log
     └── launchd.stderr.log
@@ -118,7 +119,7 @@ Surface a pending refresh in new Claude sessions. Add to `~/.claude/settings.jso
 
 ```bash
 # 1. Dry-run reconciliation
-~/.claude/skills/patch-my-hosts/scripts/patch-my-hosts.sh --dry-run
+${CLAUDE_SKILL_DIR}/scripts/patch-my-hosts.sh --dry-run
 
 # 2. Inspect the candidate
 diff -u /etc/hosts /tmp/hosts.*.patched | head -40

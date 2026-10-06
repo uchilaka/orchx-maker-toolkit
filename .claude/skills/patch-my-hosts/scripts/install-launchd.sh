@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Render the LaunchAgent plist with absolute paths and load it.
-# TODO(LAR-352): no path-injection seam (INSTALLED_DIR is hardcoded) — makes this
-# script structurally harder to test than reconcile.sh's --hosts/--archive overrides.
+# Copy the scheduled scripts to a stable location, render the LaunchAgent plist
+# pointing at them, and load it.
+#
+#   --no-load  render and copy only; skip launchctl (used by the tests, together
+#              with PATCH_MY_HOSTS_LAUNCH_AGENTS_DIR and PATCH_MY_HOSTS_STATE_DIR)
 
 set -euo pipefail
 
@@ -11,16 +13,31 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKILL_DIR="$(cd "$HERE/.." && pwd)"
 TEMPLATE="$SKILL_DIR/LaunchAgents/com.larcity.patch-my-hosts.plist"
-INSTALLED_DIR="$HOME/Library/LaunchAgents"
-INSTALLED="$INSTALLED_DIR/com.larcity.patch-my-hosts.plist"
+INSTALLED="$LAUNCH_AGENTS_DIR/com.larcity.patch-my-hosts.plist"
 LABEL="com.larcity.patch-my-hosts"
+
+load=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-load) load=0 ;;
+    *) log "unknown flag: $arg"; exit 2 ;;
+  esac
+done
 
 [ -f "$TEMPLATE" ] || { log "template not found: $TEMPLATE"; exit 1; }
 
 ensure_state_dirs
-mkdir -p "$INSTALLED_DIR"
+mkdir -p "$LAUNCH_AGENTS_DIR" "$BIN_DIR"
 
-FETCH_SCRIPT="$HERE/fetch-upstream.sh"
+# Copy via a temp file and mv, so launchd never runs a half-written script.
+for f in "${STABLE_SCRIPTS[@]}"; do
+  cp "$HERE/$f" "$BIN_DIR/.$f.tmp"
+  chmod 0755 "$BIN_DIR/.$f.tmp"
+  mv "$BIN_DIR/.$f.tmp" "$BIN_DIR/$f"
+done
+log "copied ${STABLE_SCRIPTS[*]} to $BIN_DIR"
+
+FETCH_SCRIPT="$BIN_DIR/fetch-upstream.sh"
 
 # TODO(LAR-350): unescaped sed replacement — a path containing & or | would
 # corrupt the rendered plist. Escape replacement values or switch templating approach.
@@ -31,6 +48,11 @@ sed \
   "$TEMPLATE" > "$INSTALLED"
 
 log "wrote $INSTALLED"
+
+if [ "$load" -eq 0 ]; then
+  log "--no-load: skipping launchctl"
+  exit 0
+fi
 
 uid="$(id -u)"
 domain="gui/$uid"

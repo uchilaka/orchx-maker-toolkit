@@ -43,9 +43,12 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
     - Ask for a brief summary of **key changes** for the `CHANGELOG.md`.
 
 7.  **Update Metadata:**
-    - Update the `Current Version` and `Last Sync` date in `GEMINI.md`. There is no
-      `package.json`; `GEMINI.md`, the `CHANGELOG.md` heading and the git tag are the
-      only places the version lives.
+    - Update the `Current Version` and `Last Sync` date in `GEMINI.md`.
+    - Set `version` in `.claude-plugin/plugin.json` to the same version, without the
+      leading `v`. It's the version Claude Code shows plugin users, and it pins their
+      install until it changes.
+    - There is no `package.json`. The version lives in exactly four places: `GEMINI.md`,
+      `.claude-plugin/plugin.json`, the `CHANGELOG.md` heading and the git tag.
 
 8.  **Draft Changelog:**
     - Prepend the new release notes to `CHANGELOG.md` following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standard.
@@ -53,6 +56,8 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 
 9.  **Build & Package:**
     - Run `mise run build:gemini` to refresh all `.skill` artifacts in the `dist/` directory.
+    - Run `mise run build:claude` to validate the Claude Code plugin marketplace. A
+      warning fails this step too (`--strict`), so fix it rather than skipping it.
 
 10. **Commit & Tag:**
     - Stage all changes (`git add .`).
@@ -63,5 +68,5 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 ## Safety Guidelines
 
 - **Atomic Changes:** Ensure all metadata, changelog, and build artifacts are updated in the same commit.
-- **Verification First:** Never proceed to the commit step if the `mise run build:gemini` step fails.
+- **Verification First:** Never proceed to the commit step if `mise run build:gemini` or `mise run build:claude` fails.
 - **Explicit Confirmation:** Summarize the proposed changes (version, changelog entry) and ask for one final confirmation before pushing to the remote.
