@@ -125,10 +125,14 @@ function loadConfig(opts) {
 
 // --- Item discovery ---------------------------------------------------------
 
-// What a release publishes: Gemini skills, real (non-symlinked) Claude skills,
-// Claude agents, and scripts marked shareable. Mounted symlinks are skipped
-// because their source is already covered under .gemini/skills/.
-function discoverItems(root) {
+// What a release publishes: Gemini skills, the Claude skills the plugin
+// marketplace lists, Claude agents, and scripts marked shareable. A repo can
+// keep Claude skills it never ships (installed some other way), so when
+// .claude-plugin/marketplace.json exists, its `skills` arrays are the scope and
+// anything else in .claude/skills/ is skipped with a note. Without a
+// marketplace, every real (non-symlinked) Claude skill counts. Mounted
+// symlinks are always skipped: their source is under .gemini/skills/.
+function discoverItems(root, notes) {
   const items = [];
   const dirsIn = (rel, { skipSymlinks = false } = {}) => {
     const abs = path.join(root, rel);
@@ -143,10 +147,34 @@ function discoverItems(root) {
     return fs.readdirSync(abs).map(n => path.join(abs, n)).filter(p => fs.statSync(p).isFile() && pred(p));
   };
   items.push(...dirsIn('.gemini/skills'));
-  items.push(...dirsIn('.claude/skills', { skipSymlinks: true }));
+  const claudeSkills = dirsIn('.claude/skills', { skipSymlinks: true });
+  const published = marketplaceSkills(root);
+  if (published) {
+    const skipped = claudeSkills.filter(d => !published.has(d));
+    items.push(...claudeSkills.filter(d => published.has(d)));
+    if (skipped.length) {
+      notes.push(`not checked, because .claude-plugin/marketplace.json doesn't publish them: ${skipped.map(d => path.relative(root, d)).join(', ')}`);
+    }
+  } else {
+    items.push(...claudeSkills);
+  }
   items.push(...filesIn('.claude/agents', p => p.endsWith('.md')));
   items.push(...filesIn('scripts/shareable', () => true));
   return items;
+}
+
+// Absolute skill directories listed by any plugin entry, or null when the repo
+// has no marketplace.
+function marketplaceSkills(root) {
+  const file = path.join(root, '.claude-plugin', 'marketplace.json');
+  if (!fs.existsSync(file)) return null;
+  const market = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const dirs = new Set();
+  for (const plugin of market.plugins || []) {
+    const source = typeof plugin.source === 'string' ? plugin.source : '.';
+    for (const rel of [].concat(plugin.skills || [])) dirs.add(path.resolve(root, source, rel));
+  }
+  return dirs;
 }
 
 function itemName(item) {
@@ -550,12 +578,14 @@ function toMarkdown(report) {
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const config = loadConfig(opts);
-  const discovered = discoverItems(opts.root);
+  const notes = [];
+  const scopeNotes = [];
+  const discovered = discoverItems(opts.root, scopeNotes);
+  if (opts.all) notes.push(...scopeNotes);
   const items = opts.all ? discovered : opts.paths.map(p => path.resolve(p));
   for (const item of items) if (!fs.existsSync(item)) usage(`no such item: ${item}`);
   const bundle = new Set([...discovered, ...items].map(itemName));
 
-  const notes = [];
   const gitleaksState = { available: opts.gitleaks && spawnSync('gitleaks', ['version']).status === 0 };
   if (!gitleaksState.available) {
     notes.push(opts.gitleaks

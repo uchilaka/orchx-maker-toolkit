@@ -150,6 +150,23 @@ test('allow: an allow comment with no reason is ignored', () => {
   assert.ok(findings(r.report, 'portability').some(f => f.severity === 'high'));
 });
 
+test('--all checks only the Claude skills marketplace.json publishes, and says what it skipped', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-prep-mkt-'));
+  const mk = (p, body) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), body); };
+  const skill = n => `---\nname: ${n}\ndescription: A fixture skill for the marketplace scope test. Use when the self-test needs a published skill.\n---\n`;
+  mk('.claude/skills/shipped/SKILL.md', skill('shipped'));
+  // Unpublished, and broken on purpose: if it were checked, the run would fail.
+  mk('.claude/skills/local-only/SKILL.md', '---\nname: wrong\n---\nClone into /Users/jdoe/app.\n');
+  mk('.claude-plugin/marketplace.json', JSON.stringify({
+    name: 'm', owner: { name: 'o' },
+    plugins: [{ name: 'p', source: './', skills: ['./.claude/skills/shipped'] }],
+  }));
+  const r = run(['--all', '--root', root]);
+  assert.strictEqual(r.status, 0, JSON.stringify(r.report, null, 2));
+  assert.deepStrictEqual(r.report.items.map(i => path.relative(root, i)), ['.claude/skills/shipped']);
+  assert.ok(r.report.notes.some(n => /local-only/.test(n) && /marketplace\.json/.test(n)), r.report.notes.join('\n'));
+});
+
 test('--all finds publishable items and skips mount symlinks', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-prep-root-'));
   const mk = (p, body) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), body); };
