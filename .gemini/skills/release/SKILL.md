@@ -63,7 +63,8 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 9.  **Build & Package:**
     - Run `mise run build:gemini` to refresh all `.skill` artifacts in the `dist/` directory.
     - Run `mise run build:claude` to validate the Claude Code plugin marketplace. A
-      warning fails this step too (`--strict`), so fix it rather than skipping it.
+      warning fails this step too, so fix it rather than skipping it. The one
+      tolerated exception is listed, with its reason, in `scripts/validate_plugin.cjs`.
 
 10. **Commit & Tag:**
     - Stage all changes (`git add .`).

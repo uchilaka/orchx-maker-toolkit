@@ -18,7 +18,7 @@ run = "git config core.hooksPath .githooks"
 
 [tasks.test]
 description = "Validate all skills via the gemini-cli Homebrew skill validator, then self-test publish-prep"
-run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs scripts/validate_plugin.selftest.cjs"
 
 [tasks."test:publish-prep"]
 description = "Self-test publish-prep against its fixtures: each check must catch the problem seeded for it"
@@ -34,7 +34,7 @@ run = "rm -rf dist && mkdir -p dist && for d in .gemini/skills/*; do if [ -d \"$
 
 [tasks."build:claude"]
 description = "Validate the Claude Code plugin marketplace in .claude-plugin/, which publishes the repo's Claude-native skills"
-run = "claude plugin validate --strict ."
+run = "node scripts/validate_plugin.cjs"
 
 [tasks."mount:claude"]
 description = "Symlink .gemini/skills/* into .claude/skills/ so they're discoverable as Claude Code skills too"
