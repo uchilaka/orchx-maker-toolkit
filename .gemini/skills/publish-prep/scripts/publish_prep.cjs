@@ -390,6 +390,8 @@ function commandsIn(text) {
     code = code.replace(/^\s*[^\s()]+\)\s*/, '');
     for (let seg of code.split(/\|\||&&|[|;]|\$\(|`/)) {
       seg = seg.trim().replace(/^[({!]\s*/, '');
+      // An array assignment (`X=(a.sh b.sh)`) lists words; nothing in it runs.
+      if (/^(?:(?:readonly|local|declare|export)\s+(?:-\w+\s+)*)?[A-Za-z_][A-Za-z0-9_]*=\(/.test(seg)) continue;
       const words = seg.split(/\s+/).filter(Boolean);
       while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
       while (words.length && ['sudo', 'exec', 'time', 'command', 'env', 'then', 'do', 'else'].includes(words[0])) words.shift();
