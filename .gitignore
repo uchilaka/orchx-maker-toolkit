@@ -21,6 +21,7 @@ coverage/
 # repo's real, Claude-native skills, so a mount never gets committed as a duplicate.
 .claude/skills/*
 !.claude/skills/patch-my-hosts
+!.claude/skills/llm-wikify
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is
