@@ -42,7 +42,9 @@ maintainer, not assume.
     | Both             | `.gemini/skills/<name>/`  | Yes — `mise run mount:claude` exposes it to Claude Code |
 
     A Claude skill in `.claude/skills/` also needs a `!.claude/skills/<name>` line in
-    `.gitignore`, which ignores everything else in that directory.
+    `.gitignore`, which ignores everything else in that directory, and an entry in
+    `plugins[0].skills` in `.claude-plugin/marketplace.json`. Without that entry the
+    skill validates but never ships in the plugin.
 2.  **User-level or repo?** A personal skill lives in `~/.claude/skills/<name>/` (or the
     Gemini equivalent) and never enters this repo. A repo skill gets a `docs/<name>.md`
     page and a row in the README's skills table.

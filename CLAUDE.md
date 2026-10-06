@@ -79,4 +79,8 @@ a new skill installs after it merges to `main`. To try one before that, run
 re-run it from `main` after the merge so the link stops pointing at the worktree. New Claude Code sessions pick the change up; running ones don't.
 
 Adding a new repo-local skill: create `.claude/skills/<name>/`, add
-`!.claude/skills/<name>` to `.gitignore`, name it in this file, then install it.
+`!.claude/skills/<name>` to `.gitignore`, add it to `plugins[0].skills` in
+`.claude-plugin/marketplace.json` so the plugin ships it, name it in this file, then
+install it. A skill that ships in the plugin must reference its own files through
+`${CLAUDE_SKILL_DIR}`, never `~/.claude/skills/<name>/`, which doesn't exist for a
+plugin install.

@@ -39,7 +39,7 @@ profile that only holds test accounts**. The rules below exist to keep it that w
 
 Run on first use, or whenever a tool call fails to launch the browser.
 
-1. **Verify config:** `~/.claude/skills/browser-test-assist/scripts/check-setup.sh`.
+1. **Verify config:** `${CLAUDE_SKILL_DIR}/scripts/check-setup.sh`.
    Any FAIL → show the output and the fix. The expected registration is:
 
    ```bash
