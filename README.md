@@ -21,6 +21,7 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 
 | Skill | Description | Documentation |
 | :--- | :--- | :--- |
+| `browse` | Claude Code: renders plans, reviews and other markdown artifacts in the browser with live reload. | [SKILL.md](./.claude/skills/browse/SKILL.md) |
 | `finish-worktree` | Exits Git worktrees, prepares draft PRs, and applies templates. | [Docs](./docs/finish-worktree.md) |
 | `import-profile` | Syncs global preferences and memory from external profiles. | [Docs](./docs/import-profile.md) |
 | `llm-wikify` | Claude Code: scaffolds a Karpathy-style LLM-maintained wiki (sources, wiki, schema) in any repo. | [Docs](./docs/llm-wikify.md) |
@@ -122,7 +123,7 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
-The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `browser-test-assist`)
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `browser-test-assist`, `browse`)
 can be installed for use from any project, as symlinks back to this checkout:
 
 ```sh
