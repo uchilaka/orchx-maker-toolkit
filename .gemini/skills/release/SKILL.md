@@ -24,6 +24,14 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 3.  **Pre-flight Checks:**
     - Run `mise run test`.
     - If any tests or validations fail, abort the process and report the errors.
+    - Run `mise run publish-prep`, which checks every skill, agent and script the
+      release publishes. Exit `1` means at least one `high` finding: **stop the
+      release**, show the findings, and offer to run `/publish-prep` to fix them.
+      Exit `2` means the check couldn't run (for example, gitleaks isn't
+      installed): **stop the release** too, and show the message. Resume from
+      this step once it exits `0`. Never pass `--no-gitleaks` here.
+    - Medium and low findings don't block. List their count in the release
+      summary, so they're a visible decision rather than silent debt.
 
 4.  **State Verification:**
     - Run `git status` to ensure the working directory is clean.
@@ -57,7 +65,8 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 9.  **Build & Package:**
     - Run `mise run build:gemini` to refresh all `.skill` artifacts in the `dist/` directory.
     - Run `mise run build:claude` to validate the Claude Code plugin marketplace. A
-      warning fails this step too (`--strict`), so fix it rather than skipping it.
+      warning fails this step too, so fix it rather than skipping it. The one
+      tolerated exception is listed, with its reason, in `scripts/validate_plugin.cjs`.
 
 10. **Commit & Tag:**
     - Stage all changes (`git add .`).
@@ -69,4 +78,5 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
 
 - **Atomic Changes:** Ensure all metadata, changelog, and build artifacts are updated in the same commit.
 - **Verification First:** Never proceed to the commit step if `mise run build:gemini` or `mise run build:claude` fails.
+- **No Bypassing the Gate:** Never skip or work around a blocking `publish-prep` finding. The fix is an edit, or an allow comment whose reason the user approved through `/publish-prep`.
 - **Explicit Confirmation:** Summarize the proposed changes (version, changelog entry) and ask for one final confirmation before pushing to the remote.

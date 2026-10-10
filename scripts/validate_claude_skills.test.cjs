@@ -1,20 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+// The parser ships inside the publish-prep skill so its packaged .skill works
+// on its own; this validator borrows it rather than keeping a second copy.
+const { parseFrontmatter } = require('../.gemini/skills/publish-prep/scripts/lib/frontmatter.cjs');
 
 const SKILLS_DIR = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.join(__dirname, '..', '.claude', 'skills');
 
-function parseFrontmatter(content) {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return null;
-  const fm = {};
-  for (const line of match[1].split('\n')) {
-    const kv = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (kv) fm[kv[1]] = kv[2].trim();
-  }
-  return fm;
-}
 
 console.log('🔍 Validating .claude/skills/* as Claude Code skills...\n');
 

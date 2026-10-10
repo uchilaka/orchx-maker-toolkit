@@ -1,5 +1,6 @@
 #!/bin/bash
 # summon.sh - Synchronize Gemini CLI profile from a remote machine
+# Requires: scp (OpenSSH) and SSH access to the remote host
 set -e
 
 if [ -z "$1" ]; then

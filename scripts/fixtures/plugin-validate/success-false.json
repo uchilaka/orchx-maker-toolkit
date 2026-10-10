@@ -1,0 +1,9 @@
+{
+  "success": false,
+  "errors": [
+    {
+      "path": "root",
+      "message": "Invalid JSON in marketplace.json"
+    }
+  ]
+}
