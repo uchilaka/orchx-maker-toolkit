@@ -102,6 +102,9 @@ repo name and a short `<slug>`. Create the capture dir:
 Trim network output to the requests that matter. Never paste response bodies that contain
 personal data or tokens into the report. Summarize them.
 
+<!-- TODO(LAR-396): heap snapshots, traces and saved bodies reach ~/browser-tests
+unredacted; add a capture rule, a real version pin and test-only-account guidance. -->
+
 ### 4. Write the report
 
 Save `REPORT.md` in the capture dir:
@@ -140,8 +143,9 @@ checkpoint.
 ## Maintaining this skill
 
 - **Bumping the MCP:** check `npx -y chrome-devtools-mcp@latest --help` for renamed or new
-  flags, then re-register with the new pinned version and re-run `check-setup.sh`. The pin
-  is deliberate: `@latest` pulls unreviewed code into a process that drives a browser.
+  flags, then re-register with the new pinned version and re-run
+  `${CLAUDE_SKILL_DIR}/scripts/check-setup.sh`. The pin is deliberate: `@latest` pulls
+  unreviewed code into a process that drives a browser.
 - **Worth adopting when stable:** `--allowedUrlPattern` (Chrome 149+) to restrict the
   test browser to dev/staging origins. Left off for now because SSO redirects would need
   listing per project.

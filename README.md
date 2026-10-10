@@ -107,6 +107,7 @@ If you want to modify a skill or add a new one:
 4.  The updated `.skill` files will be available in the `dist/` folder.
 
 To publish a new Claude-native skill, add it in three places: its directory under `.claude/skills/`, a `!` allowlist line in `.gitignore`, and its path in the `skills` array of `.claude-plugin/marketplace.json`. That array is an explicit allowlist, so a skill that isn't in it doesn't ship. Then validate:
+<!-- TODO(LAR-397): build:claude fails --strict on the CLAUDE.md-at-plugin-root warning; the add-a-skill steps are also duplicated across CLAUDE.md and CONTRIBUTING.md. -->
 ```bash
 mise run build:claude
 ```
