@@ -12,7 +12,12 @@
 // the current directory, so run it from the repo you're preparing.
 //
 // Exit codes: 0 = nothing blocking, 1 = at least one un-allowed `high` finding,
-// 2 = usage error.
+// 2 = the check could not run (usage error, bad config, missing gitleaks, or a
+// crash). Only 1 means "findings"; a caller must treat 2 as a stop too.
+//
+// gitleaks is required. Without it the checker refuses to run (exit 2), because
+// the regex fallback only knows a handful of token formats. --no-gitleaks opts
+// into that fallback deliberately; the /release gate never passes it.
 //
 // Silence a finding by putting this on the line above it, or on the same line:
 //   publish-prep: allow <check>[,<check>] — <reason>
@@ -35,7 +40,7 @@ const DEFAULT_ASSUMED_COMMANDS = [
   'case', 'esac', 'function', 'return', 'exit', 'export', 'local', 'readonly',
   'set', 'unset', 'shift', 'source', 'eval', 'exec', 'trap', 'wait', 'read',
   'cd', 'pwd', 'echo', 'printf', 'test', 'true', 'false', 'command', 'type',
-  'alias', 'builtin', 'declare', 'let', 'time', 'sudo', 'then',
+  'alias', 'builtin', 'declare', 'let', 'time', 'sudo',
   // POSIX and near-universal tools
   'awk', 'basename', 'cat', 'chmod', 'cp', 'curl', 'cut', 'date', 'diff',
   'dirname', 'env', 'file', 'find', 'git', 'grep', 'head', 'kill', 'ln', 'ls',
@@ -71,16 +76,25 @@ const ROOT_DIRS = new Set([
   'home', 'opt', 'private', 'proc', 'root', 'sbin', 'tmp', 'usr', 'var',
 ]);
 
-// Token shapes for when gitleaks isn't installed. Deliberately narrow: this is
-// the degraded path, and gitleaks is the real check.
+// Token shapes the checker finds without gitleaks. They run when gitleaks is
+// skipped (--no-gitleaks) or fails, and always on lines gitleaks can't see:
+// files reached through a symlink, and lines carrying `gitleaks:allow`.
+// gitleaks remains the real check; this list is the safety net.
 const FALLBACK_TOKEN_PATTERNS = [
   ['GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/],
   ['Anthropic key', /\bsk-ant-[A-Za-z0-9_-]{20,}/],
-  ['OpenAI-style key', /\bsk-[A-Za-z0-9]{32,}\b/],
-  ['AWS access key', /\bAKIA[0-9A-Z]{16}\b/],
+  ['OpenAI key', /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}/],
+  ['Stripe live key', /\b[sr]k_live_[A-Za-z0-9]{24,}/],
+  ['GitLab token', /\bglpat-[A-Za-z0-9_-]{20,}/],
+  ['Google API key', /\bAIza[0-9A-Za-z_-]{35}/],
+  ['npm token', /\bnpm_[A-Za-z0-9]{36}\b/],
+  ['AWS access key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  ['AWS secret key', /aws_secret_access_key\s*[=:]\s*['"]?[A-Za-z0-9/+=]{40}/i],
   ['Slack token', /\bxox[abprs]-[A-Za-z0-9-]{10,}/],
+  ['JWT', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
 ];
+const FALLBACK_FORMATS = FALLBACK_TOKEN_PATTERNS.map(([label]) => label).join(', ');
 
 function parseArgs(argv) {
   const opts = { json: false, all: false, gitleaks: true, config: null, root: null, paths: [] };
@@ -89,8 +103,8 @@ function parseArgs(argv) {
     if (a === '--json') opts.json = true;
     else if (a === '--all') opts.all = true;
     else if (a === '--no-gitleaks') opts.gitleaks = false;
-    else if (a === '--config') opts.config = argv[++i];
-    else if (a === '--root') opts.root = argv[++i];
+    else if (a === '--config') opts.config = valueOf(argv, ++i, a);
+    else if (a === '--root') opts.root = valueOf(argv, ++i, a);
     else if (a.startsWith('--')) usage(`unknown option ${a}`);
     else opts.paths.push(a);
   }
@@ -98,6 +112,11 @@ function parseArgs(argv) {
   if (opts.all && opts.paths.length) usage('pass --all or paths, not both');
   opts.root = path.resolve(opts.root || gitRoot() || process.cwd());
   return opts;
+}
+
+function valueOf(argv, i, flag) {
+  if (i >= argv.length || argv[i].startsWith('--')) usage(`${flag} needs a value`);
+  return argv[i];
 }
 
 function gitRoot() {
@@ -111,9 +130,24 @@ function usage(msg) {
   process.exit(2);
 }
 
+// Thrown for input the checker can't use (bad config, broken marketplace).
+// main() turns it into exit 2 with this message, never a stack trace.
+class InputError extends Error {}
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new InputError(`can't read ${file}: ${e.message}`);
+  }
+}
+
 function loadConfig(opts) {
+  // An explicit --config that doesn't exist is a mistake, not "no config":
+  // silently using defaults would drop the internal domains it was meant to add.
+  if (opts.config && !fs.existsSync(opts.config)) usage(`--config file not found: ${opts.config}`);
   const file = opts.config || path.join(opts.root, '.publish-prep.json');
-  const user = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  const user = fs.existsSync(file) ? readJson(file) : {};
   return {
     internalDomains: user.internalDomains || [],
     personalPaths: user.personalPaths || [],
@@ -128,10 +162,11 @@ function loadConfig(opts) {
 // What a release publishes: Gemini skills, the Claude skills the plugin
 // marketplace lists, Claude agents, and scripts marked shareable. A repo can
 // keep Claude skills it never ships (installed some other way), so when
-// .claude-plugin/marketplace.json exists, its `skills` arrays are the scope and
-// anything else in .claude/skills/ is skipped with a note. Without a
-// marketplace, every real (non-symlinked) Claude skill counts. Mounted
-// symlinks are always skipped: their source is under .gemini/skills/.
+// .claude-plugin/marketplace.json exists, its `skills` arrays are the scope:
+// every listed directory is checked wherever it lives, and anything else in
+// .claude/skills/ is skipped with a note. Without a marketplace, every real
+// (non-symlinked) Claude skill counts. Mounted symlinks are always skipped:
+// their source is under .gemini/skills/.
 function discoverItems(root, notes) {
   const items = [];
   const dirsIn = (rel, { skipSymlinks = false } = {}) => {
@@ -151,7 +186,7 @@ function discoverItems(root, notes) {
   const published = marketplaceSkills(root);
   if (published) {
     const skipped = claudeSkills.filter(d => !published.has(d));
-    items.push(...claudeSkills.filter(d => published.has(d)));
+    items.push(...published);
     if (skipped.length) {
       notes.push(`not checked, because .claude-plugin/marketplace.json doesn't publish them: ${skipped.map(d => path.relative(root, d)).join(', ')}`);
     }
@@ -164,15 +199,21 @@ function discoverItems(root, notes) {
 }
 
 // Absolute skill directories listed by any plugin entry, or null when the repo
-// has no marketplace.
+// has no marketplace. A listed path that's missing or outside the repo would
+// otherwise ship unchecked (or fail at install), so it's an error, not a skip.
 function marketplaceSkills(root) {
   const file = path.join(root, '.claude-plugin', 'marketplace.json');
   if (!fs.existsSync(file)) return null;
-  const market = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const market = readJson(file);
   const dirs = new Set();
   for (const plugin of market.plugins || []) {
     const source = typeof plugin.source === 'string' ? plugin.source : '.';
-    for (const rel of [].concat(plugin.skills || [])) dirs.add(path.resolve(root, source, rel));
+    for (const rel of [].concat(plugin.skills || [])) {
+      const dir = path.resolve(root, source, rel);
+      if (dir !== root && !dir.startsWith(root + path.sep)) throw new InputError(`marketplace.json publishes ${rel}, which is outside the repo`);
+      if (!fs.existsSync(path.join(dir, 'SKILL.md'))) throw new InputError(`marketplace.json publishes ${rel}, which has no SKILL.md`);
+      dirs.add(dir);
+    }
   }
   return dirs;
 }
@@ -181,20 +222,41 @@ function itemName(item) {
   return path.basename(item).replace(/\.md$/, '');
 }
 
+// Every text file in an item, plus which of them were reached through a
+// symlink. gitleaks doesn't scan through symlinks, but `zip` (build:gemini)
+// packages what they point to, so linked files get the token regexes and a
+// link that leaves the item is reported. Directories are tracked by real path,
+// so a symlink loop is walked once instead of crashing.
 function listFiles(item) {
-  if (fs.statSync(item).isFile()) return [item];
-  const out = [];
-  const walk = dir => {
+  if (fs.statSync(item).isFile()) return { files: [item], linked: new Set(), escapes: [] };
+  const realItem = fs.realpathSync(item);
+  const files = [];
+  const linked = new Set();
+  const escapes = [];
+  const seen = new Set();
+  const walk = (dir, viaLink) => {
+    const real = fs.realpathSync(dir);
+    if (seen.has(real)) return;
+    seen.add(real);
     for (const name of fs.readdirSync(dir)) {
       if (name === '.git' || name === 'node_modules') continue;
       const p = path.join(dir, name);
-      const st = fs.statSync(p);
-      if (st.isDirectory()) walk(p);
-      else if (st.isFile() && !isBinary(p)) out.push(p);
+      const isLink = fs.lstatSync(p).isSymbolicLink();
+      let st;
+      try { st = fs.statSync(p); } catch { continue; } // dangling link
+      if (isLink) {
+        const target = fs.realpathSync(p);
+        if (target !== realItem && !target.startsWith(realItem + path.sep)) escapes.push({ file: p, target });
+      }
+      if (st.isDirectory()) walk(p, viaLink || isLink);
+      else if (st.isFile() && !isBinary(p)) {
+        files.push(p);
+        if (viaLink || isLink) linked.add(p);
+      }
     }
   };
-  walk(item);
-  return out.sort();
+  walk(item, false);
+  return { files: files.sort(), linked, escapes };
 }
 
 function isBinary(file) {
@@ -242,6 +304,9 @@ function escapeRe(s) {
 }
 
 function checkSecretsRegex(ctx, useTokenFallback) {
+  // gitleaks never sees a file reached through a symlink, so those always get
+  // the token regexes.
+  useTokenFallback = useTokenFallback || ctx.linked;
   const { lines, add, config } = ctx;
   const internal = config.internalDomains.map(d => [d, new RegExp(`\\b(?:[\\w-]+\\.)*${escapeRe(d)}\\b`, 'i')]);
   lines.forEach((line, i) => {
@@ -272,16 +337,32 @@ function checkSecretsRegex(ctx, useTokenFallback) {
   });
 }
 
+// Nothing inside the item can quiet this scan: --config pins our rules (an item's
+// own .gitleaks.toml would otherwise load), -i points at an empty ignore file
+// (instead of a .gitleaksignore in the working directory), and
+// --ignore-gitleaks-allow reports `gitleaks:allow` lines so they go through the
+// reason-required publish-prep allow instead.
+const GITLEAKS_CONFIG = path.join(__dirname, 'gitleaks.toml');
+const GITLEAKS_CONFIG_FILES = new Set(['.gitleaks.toml', '.gitleaksignore', '.gitleaksbaseline.json']);
+
 function runGitleaks(item) {
-  const report = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'publish-prep-gl-')), 'report.json');
-  const res = spawnSync('gitleaks', [
-    'dir', item, '--no-banner', '--redact', '--exit-code', '0',
-    '--report-format', 'json', '--report-path', report,
-  ], { encoding: 'utf8' });
-  if (res.status !== 0) return { error: (res.stderr || '').trim().split('\n').pop() };
-  const results = JSON.parse(fs.readFileSync(report, 'utf8') || '[]');
-  // Only rule, file and line survive: never Secret or Match, even redacted.
-  return { results: results.map(r => ({ rule: r.RuleID, description: r.Description, file: r.File, line: r.StartLine })) };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-prep-gl-'));
+  try {
+    const report = path.join(dir, 'report.json');
+    const ignore = path.join(dir, '.gitleaksignore');
+    fs.writeFileSync(ignore, '');
+    const res = spawnSync('gitleaks', [
+      'dir', item, '--no-banner', '--redact', '--exit-code', '0',
+      '--config', GITLEAKS_CONFIG, '--gitleaks-ignore-path', ignore, '--ignore-gitleaks-allow',
+      '--report-format', 'json', '--report-path', report,
+    ], { encoding: 'utf8' });
+    if (res.status !== 0) return { error: (res.stderr || '').trim().split('\n').pop() };
+    const results = JSON.parse(fs.readFileSync(report, 'utf8') || '[]');
+    // Only rule, file and line survive: never Secret or Match, even redacted.
+    return { results: results.map(r => ({ rule: r.RuleID, description: r.Description, file: r.File, line: r.StartLine })) };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function checkPortability(ctx) {
@@ -505,7 +586,7 @@ function checkDependencies(ctx, declared, defs) {
 function checkItem(item, opts, config, bundle, notes, gitleaksState) {
   const findings = [];
   const kind = kindOf(item);
-  const files = listFiles(item);
+  const { files, linked, escapes } = listFiles(item);
   const skillMd = kind === 'skill' ? path.join(item, 'SKILL.md') : null;
   const itemDeclared = skillMd ? requirementsText(fs.readFileSync(skillMd, 'utf8').split('\n')) : '';
   const display = p => (p.startsWith(opts.root + path.sep) ? path.relative(opts.root, p) : p);
@@ -522,7 +603,7 @@ function checkItem(item, opts, config, bundle, notes, gitleaksState) {
   let gitleaksResults = null;
   if (gitleaksState.available) {
     const gl = runGitleaks(item);
-    if (gl.error) notes.push(`gitleaks failed on ${display(item)} (${gl.error}); fell back to regex token checks`);
+    if (gl.error) notes.push(`gitleaks failed on ${display(item)} (${gl.error}); fell back to regex token checks, which know these formats: ${FALLBACK_FORMATS}`);
     else gitleaksResults = gl.results;
   }
 
@@ -531,12 +612,18 @@ function checkItem(item, opts, config, bundle, notes, gitleaksState) {
     const lines = content.split('\n');
     const allowMap = allowances(lines, notes, display(file));
     allowByFile.set(path.resolve(file), allowMap);
-    const ctx = { file, content, lines, config, bundle, self: itemName(item), add: makeAdd(file, allowMap) };
+    const ctx = { file, content, lines, config, bundle, self: itemName(item), linked: linked.has(file), add: makeAdd(file, allowMap) };
     checkSecretsRegex(ctx, gitleaksResults === null);
     checkPortability(ctx);
-    if (file === skillMd) checkFrontmatter(ctx, 'skill', item);
-    if (kind === 'agent' && file === item) checkFrontmatter(ctx, 'agent', item);
+    if (file === skillMd || kind === 'agent') checkFrontmatter(ctx, kind, item);
+    if (GITLEAKS_CONFIG_FILES.has(path.basename(file))) {
+      ctx.add('secrets', 'high', 1, `${path.basename(file)} ships its own gitleaks settings, which can hide secrets from scanners`, 'remove it; excuse a deliberate finding with a publish-prep allow comment and a reason');
+    }
     checkDependencies(ctx, [itemDeclared, requirementsText(lines)].join('\n'), defs);
+  }
+
+  for (const { file, target } of escapes) {
+    makeAdd(file, allowByFile.get(path.resolve(file)) || new Map())('portability', 'high', 1, `symlink resolves outside the item (${target}), so its target ships with the package`, 'copy the file into the item, or drop the link');
   }
 
   for (const r of gitleaksResults || []) {
@@ -546,6 +633,10 @@ function checkItem(item, opts, config, bundle, notes, gitleaksState) {
     makeAdd(file, allowMap)('secrets', 'high', r.line, `gitleaks ${r.rule}: ${r.description}`, 'remove it and rotate the credential');
   }
   return findings;
+}
+
+function cell(text) {
+  return String(text).replace(/\|/g, '\\|');
 }
 
 function toMarkdown(report) {
@@ -560,7 +651,7 @@ function toMarkdown(report) {
   for (const [item, fs_] of byItem) {
     out.push(`## ${item}`, '', '| Severity | Check | Where | Finding | Suggested fix |', '| --- | --- | --- | --- | --- |');
     fs_.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.line - b.line)
-      .forEach(f => out.push(`| ${f.severity} | ${f.check} | \`${f.file}:${f.line}\` | ${f.message.replace(/\|/g, '\\|')} | ${f.suggestedFix} |`));
+      .forEach(f => out.push(`| ${f.severity} | ${f.check} | \`${f.file}:${f.line}\` | ${cell(f.message)} | ${cell(f.suggestedFix)} |`));
     out.push('');
   }
   if (allowed.length) {
@@ -587,10 +678,11 @@ function main() {
   const bundle = new Set([...discovered, ...items].map(itemName));
 
   const gitleaksState = { available: opts.gitleaks && spawnSync('gitleaks', ['version']).status === 0 };
-  if (!gitleaksState.available) {
-    notes.push(opts.gitleaks
-      ? 'gitleaks is not installed, so secrets were checked with the regex fallback only (install: mise run bundle)'
-      : 'gitleaks was skipped (--no-gitleaks), so secrets were checked with the regex fallback only');
+  if (opts.gitleaks && !gitleaksState.available) {
+    usage('gitleaks is not installed, so secrets can\'t be checked properly (install: mise run bundle). Pass --no-gitleaks to run on the regex fallback deliberately');
+  }
+  if (!opts.gitleaks) {
+    notes.push(`gitleaks was skipped (--no-gitleaks), so secrets were checked with the regex fallback only, which knows these formats: ${FALLBACK_FORMATS}`);
   }
 
   const findings = items.flatMap(item => checkItem(item, opts, config, bundle, notes, gitleaksState));
@@ -599,4 +691,10 @@ function main() {
   process.exit(findings.some(f => !f.allowed && f.severity === 'high') ? 1 : 0);
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  // Exit 1 means "findings"; a crash must never look like one (or like a pass).
+  console.error(`publish-prep: ${e instanceof InputError ? e.message : e.stack}`);
+  process.exit(2);
+}

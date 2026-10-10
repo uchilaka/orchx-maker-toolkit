@@ -6,7 +6,8 @@ The `/publish-prep` skill gets a skill, agent or script ready for someone else's
 
 | Check | Finds | Blocks a release? |
 | :--- | :--- | :--- |
-| `secrets` | Tokens and keys (via `gitleaks`, with a regex fallback), email addresses, Tailscale `*.ts.net` hostnames, internal domains | Yes (`high`). Private IPs are `medium` |
+| `secrets` | Tokens and keys (via `gitleaks`, which is required), email addresses, Tailscale `*.ts.net` hostnames, internal domains. Nothing inside an item can quiet the scan: a bundled `.gitleaks.toml`, `.gitleaksignore` or `gitleaks:allow` doesn't work, and is itself flagged or reported | Yes (`high`). Private IPs are `medium` |
+| `portability` | A symlink that resolves outside the item, since its target gets packaged | Yes (`high`) |
 | `portability` | Absolute home paths, machine-specific paths, a skill pointing at its own install path | Yes (`high`) |
 | | Personal conventions (e.g. a plans folder only you use), references to skills that don't ship | No (`medium`) |
 | `frontmatter` | Missing or mismatched `name`, missing or oversized `description` | Yes (`high`) |
@@ -29,7 +30,7 @@ mise run publish-prep -- .claude/skills/x  # one item
 mise run publish-prep -- --json            # machine-readable
 ```
 
-`/release` runs `mise run publish-prep` in its pre-flight step, and stops on any `high` finding.
+`/release` runs `mise run publish-prep` in its pre-flight step. It stops on any `high` finding (exit 1), and also when the check can't run at all (exit 2), for example when gitleaks isn't installed.
 
 ## Configuration
 

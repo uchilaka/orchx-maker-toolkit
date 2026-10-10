@@ -27,7 +27,9 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
     - Run `mise run publish-prep`, which checks every skill, agent and script the
       release publishes. Exit `1` means at least one `high` finding: **stop the
       release**, show the findings, and offer to run `/publish-prep` to fix them.
-      Resume from this step once it exits `0`.
+      Exit `2` means the check couldn't run (for example, gitleaks isn't
+      installed): **stop the release** too, and show the message. Resume from
+      this step once it exits `0`. Never pass `--no-gitleaks` here.
     - Medium and low findings don't block. List their count in the release
       summary, so they're a visible decision rather than silent debt.
 

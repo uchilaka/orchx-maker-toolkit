@@ -12,8 +12,9 @@ batch, and you apply only what they approved.
 ## Requirements
 
 - `node` 18 or later, to run the bundled checker.
-- `gitleaks` (recommended). Without it, the checker falls back to a narrow set
-  of token regexes and says so in its notes.
+- `gitleaks`. Without it the checker refuses to run (exit `2`). `--no-gitleaks`
+  runs on a narrower regex fallback instead, and the notes say so. Use it only
+  when the user asks, and never for a release.
 - Optional: a `.publish-prep.json` at the repo root listing what counts as
   personal for this repo (`internalDomains`, `personalPaths`,
   `personalConventions`, plus `assumedCommands` and `knownCommands` to quiet
@@ -40,7 +41,8 @@ node <this-skill-dir>/scripts/publish_prep.cjs --json [<path>...]
 In the toolkit repo itself, `mise run publish-prep -- --json` does the same.
 
 - Exit `0`: nothing blocking. Exit `1`: at least one `high` finding. Exit `2`:
-  usage error; show it and stop.
+  the check couldn't run (usage error, unreadable config or `marketplace.json`,
+  gitleaks missing); show the message and stop. Exit `2` is never a pass.
 - Never re-derive findings by reading files yourself. The checker's output is the
   source of truth, so two runs give the same answer.
 
@@ -49,7 +51,8 @@ In the toolkit repo itself, `mise run publish-prep -- --json` does the same.
 Lead with the verdict: `BLOCKED (N high)` or `OK`. Then list open findings
 grouped by item, most severe first. Each one gets severity, check, `file:line`
 and the message. Separately, list the allowed findings with their reasons, and
-pass on any `notes` (for example, gitleaks missing).
+pass on any `notes` (for example, gitleaks skipped or failing, or Claude skills
+the marketplace doesn't publish).
 
 If there are no open findings, say so and stop.
 
