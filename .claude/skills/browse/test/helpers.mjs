@@ -57,11 +57,13 @@ export function fixtureTree() {
   return { root, plans };
 }
 
-// Start serve-md.mjs on a free port; resolves once it prints its URL.
+// Start serve-md.mjs on a free port; resolves once it prints its URL. Its
+// registry entry goes to a throwaway state dir unless the test passes one, so
+// tests never write into the real ~/.claude/state/browse.
 export function startServer(path, { env = {}, server = SERVER } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [server, path, "--port", "0"], {
-      env: { ...process.env, ...env },
+      env: { ...process.env, BROWSE_STATE_DIR: mkdtempSync(join(tmpdir(), "browse-state-")), ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";

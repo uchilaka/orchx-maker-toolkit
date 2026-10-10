@@ -13,6 +13,10 @@
  * Live reload: uses Server-Sent Events (SSE) + fs.watch to push updates
  * whenever any .md file in scope changes on disk.
  *
+ * Registry: once listening, writes ~/.claude/state/browse/<port>.json (pid,
+ * path, url, owner) and removes it on exit, so launchers can find live servers.
+ * See registry.mjs.
+ *
  * Styling: Tailwind 3 Play CDN + @tailwindcss/typography, utilities only — no
  * inline CSS. Dark mode uses Tailwind's `class` strategy so the header switch can
  * force light or dark; "system" (the default) follows the OS and tracks changes.
@@ -25,6 +29,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { watch, realpathSync } from "node:fs";
 import { join, resolve, relative, extname, basename, dirname, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { writeEntry, removeEntry, ownerFromEnv } from "./registry.mjs";
 
 // ---------------------------------------------------------------------------
 // Components — each returns an HTML string styled with Tailwind utilities
@@ -648,6 +653,15 @@ export async function main(args = process.argv.slice(2)) {
     // Display name only; the server always binds to 127.0.0.1. A vanity name
     // (e.g. plans.localhost) needs a matching /etc/hosts entry — see SKILL.md.
     const url = `http://${process.env.BROWSE_HOST || "localhost"}:${addr.port}`;
+    // Registered before the URL is printed, so anything waiting on that line
+    // can rely on the entry being there.
+    writeEntry({
+      pid: process.pid, port: addr.port, path: targetPath, url,
+      owner: ownerFromEnv(), started: new Date().toISOString(),
+    });
+    const unregister = () => removeEntry(addr.port, process.pid);
+    process.on("exit", unregister);
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => process.exit(0));
     console.log(`Serving: ${targetPath}`);
     console.log(`URL: ${url}`);
     console.log(`PID: ${process.pid}`);

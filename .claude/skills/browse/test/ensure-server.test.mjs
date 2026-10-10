@@ -8,7 +8,7 @@ import { copyFileSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmod
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { SERVER, ENSURE, fixtureTree, freePort, startServer, rawGet } from "./helpers.mjs";
+import { SKILL_DIR, SERVER, ENSURE, fixtureTree, freePort, startServer, rawGet } from "./helpers.mjs";
 
 // A suite-level timeout, so a regression fails instead of hanging the run.
 describe("ensure-server.sh", { timeout: 60_000 }, () => {
@@ -31,6 +31,7 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
     ensure = join(skill, "ensure-server.sh");
     copyFileSync(SERVER, server);
     copyFileSync(ENSURE, ensure);
+    copyFileSync(join(SKILL_DIR, "registry.mjs"), join(skill, "registry.mjs"));
 
     const home = join(tree.root, "home");
     mkdirSync(join(home, ".claude", "state"), { recursive: true });
