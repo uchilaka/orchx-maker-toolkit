@@ -70,6 +70,8 @@ function envWithPath(extra) {
   return { ...process.env, PATH: [extra, '/usr/bin', '/bin'].filter(Boolean).join(path.delimiter) };
 }
 
+// TODO(LAR-389): untested so far: markdown output, allow-comment variants,
+// private IPs, frontmatter edge cases, config merging, --all exiting 1.
 const hasGitleaks = spawnSync('gitleaks', ['version']).status === 0;
 // In CI a missing gitleaks must fail the gitleaks tests, not skip them: the
 // primary secrets path would otherwise go silently untested.

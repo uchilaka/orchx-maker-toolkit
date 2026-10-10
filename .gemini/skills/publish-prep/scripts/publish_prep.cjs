@@ -264,6 +264,8 @@ function isBinary(file) {
   return buf.includes(0);
 }
 
+// TODO(LAR-388): a SKILL.md path passed directly is treated as an agent
+// named "SKILL"; check its parent directory instead.
 function kindOf(item) {
   if (fs.statSync(item).isDirectory()) {
     return fs.existsSync(path.join(item, 'SKILL.md')) ? 'skill' : 'directory';
@@ -276,6 +278,8 @@ function kindOf(item) {
 
 // `--(?!>)` keeps the `--` of an HTML comment's closing `-->` from reading as
 // the separator before a reason.
+// TODO(LAR-387): stacked allow comments overwrite each other, and `a, b` or a
+// single `-` separator doesn't parse and isn't noted.
 const ALLOW_RE = /publish-prep:\s*allow\s+([a-z,]+)(?:\s*(?:—|--(?!>)|:)\s*(.*?))?\s*(?:-->|\*\/)?\s*$/;
 
 // Maps line number -> { checks, reason }. A comment covers its own line and
@@ -315,6 +319,8 @@ function checkSecretsRegex(ctx, useTokenFallback) {
       const email = m[0];
       const [local, domain] = email.toLowerCase().split('@');
       if (/^no-?reply$/.test(local) || /(^|\.)example\.(com|org|net)$/.test(domain) || domain.endsWith('users.noreply.github.com')) continue;
+      // TODO(LAR-391): decide whether to mask PII values in findings, since
+      // /release summaries can carry them into PR bodies.
       add('secrets', 'high', n, `email address ${email}`, 'replace with a placeholder such as <you@example.com>');
     }
     for (const m of line.matchAll(/\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net\b/g)) {
@@ -423,6 +429,8 @@ const SHELL_LANGS = new Set(['bash', 'sh', 'shell', 'zsh', 'console']);
 // Returns [{ line, text }] for every line that runs as shell: fenced shell
 // blocks in markdown, or the whole file for a shell script. Heredoc bodies are
 // dropped, since they're data, not commands.
+// TODO(LAR-386): `<<'EOF'` bodies are scanned as commands and `<<<` hides the
+// rest of the file. TODO(LAR-390): collapse the fence/whole-file state.
 function shellLines(file, lines) {
   const out = [];
   const isShellScript = /\.(sh|bash|zsh)$/.test(file) || /^#!.*\b(ba|z)?sh\b/.test(lines[0] || '');
@@ -491,6 +499,8 @@ function shellCode(text) {
   return [out, ...subs.flatMap(shellCode)];
 }
 
+// TODO(LAR-386): misses `if cmd;`, `xargs cmd`, `sudo -u x cmd`; `\`
+// continuations and console-fence output give false commands.
 function commandsIn(text) {
   const cmds = [];
   for (let code of shellCode(text)) {
@@ -529,6 +539,8 @@ function shellDefinitions(files) {
   return { defined, assigned };
 }
 
+// TODO(LAR-386): a shell `# Dependencies …` comment reads as a heading and
+// switches the dependency check off for the rest of the file.
 function requirementsText(lines) {
   const out = [];
   let level = 0;
@@ -583,6 +595,8 @@ function checkDependencies(ctx, declared, defs) {
 
 // --- Driver -----------------------------------------------------------------
 
+// TODO(LAR-390): read each file once here; pass useGitleaks and root rather
+// than the gitleaksState object and all of opts.
 function checkItem(item, opts, config, bundle, notes, gitleaksState) {
   const findings = [];
   const kind = kindOf(item);
