@@ -1,6 +1,6 @@
-// ensure-server.sh stops every browse server started from its own path. These
-// tests run a COPY of the skill from a temp dir, so the real server (e.g. on
-// plans.localhost:3200) is never touched. `open` is shimmed so no tab appears.
+// ensure-server.sh is now a wrapper over browse-ctl.mjs (see ctl.test.mjs). These
+// tests run a COPY of the skill from a temp dir with its own HOME, so the real
+// registry and servers are never touched. `open` is shimmed so no tab appears.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, execSync } from "node:child_process";
@@ -12,7 +12,7 @@ import { SKILL_DIR, SERVER, ENSURE, fixtureTree, freePort, startServer, rawGet }
 
 // A suite-level timeout, so a regression fails instead of hanging the run.
 describe("ensure-server.sh", { timeout: 60_000 }, () => {
-  let tree, skill, server, ensure, env, opened, hosts, port;
+  let tree, skill, server, ensure, env, opened, hosts, port, home;
 
   const run = (args, extraEnv = {}) =>
     spawnSync("sh", [ensure, ...args], { env: { ...env, ...extraEnv }, encoding: "utf8" });
@@ -31,9 +31,9 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
     ensure = join(skill, "ensure-server.sh");
     copyFileSync(SERVER, server);
     copyFileSync(ENSURE, ensure);
-    copyFileSync(join(SKILL_DIR, "registry.mjs"), join(skill, "registry.mjs"));
+    for (const f of ["registry.mjs", "browse-ctl.mjs"]) copyFileSync(join(SKILL_DIR, f), join(skill, f));
 
-    const home = join(tree.root, "home");
+    home = join(tree.root, "home");
     mkdirSync(join(home, ".claude", "state"), { recursive: true });
     const bin = join(tree.root, "bin");
     mkdirSync(bin);
@@ -43,8 +43,12 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
 
     hosts = join(tree.root, "hosts");
     writeFileSync(hosts, "127.0.0.1\tlocalhost\n127.0.0.1 plans.localhost   # /browse preview server\n");
-    env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, BROWSE_HOSTS_FILE: hosts };
     port = String(await freePort());
+    // Keep the port scan off the real 3200 range; ports already held are skipped.
+    env = {
+      ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, BROWSE_HOSTS_FILE: hosts,
+      BROWSE_PORT_MIN: port, BROWSE_PORT_MAX: String(Number(port) + 5),
+    };
   });
 
   after(() => spawnSync("pkill", ["-f", server]));
@@ -65,34 +69,31 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
     assert.equal(openCalls().length, 1);
   });
 
-  test("stops a stray browse server on another port", async () => {
-    const stray = await startServer(join(tree.plans, "global"), { server });
+  test("servers it starts are shared, so a session's stop --mine leaves them", () => {
+    const entry = JSON.parse(readFileSync(join(home, ".claude", "state", "browse", `${port}.json`), "utf8"));
+    assert.equal(entry.owner, "shared");
+  });
+
+  test("a different path starts a second server and leaves the first running", async () => {
+    const other = join(tree.root, "plans-evil");
+    const r = run([other]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /\(started\)/);
+    assert.equal(await health(), tree.plans, "first server was replaced");
     assert.equal(serverPids().length, 2);
-    run([tree.plans, port]);
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("stray browse server still running after 3s")), 3000);
-      stray.child.once("exit", () => { clearTimeout(timer); resolve(); });
-    }).finally(() => stray.child.kill());
-    assert.equal(serverPids().length, 1);
-    assert.equal(await health(), tree.plans);
   });
 
-  test("replaces the server when a different path is asked for", async () => {
-    const other = join(tree.plans, "global");
-    assert.match(run([other, port]).stdout, /\(started\)/);
-    assert.equal(await health(), other);
-    run([tree.plans, port]);
-    assert.equal(await health(), tree.plans);
-  });
-
-  test("never kills a non-browse process on the port, and stops nothing else first", async () => {
+  test("never kills a non-browse process on the port", async () => {
     const foreign = createServer().listen(Number(await freePort()), "127.0.0.1");
     await new Promise((r) => foreign.once("listening", r));
     const fport = String(foreign.address().port);
     try {
-      const r = run([tree.plans, fport]);
-      assert.equal(r.status, 1);
-      assert.match(r.stderr, /held by a non-browse process .*not touching it/);
+      // A path nothing serves yet: an already-served path is reused, whatever port is asked for.
+      const fresh = join(tree.root, "fresh");
+      mkdirSync(fresh);
+      const r = run([fresh, fport]);
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, new RegExp(`port ${fport} is in use`));
       assert.ok(foreign.listening, "foreign listener still up");
       assert.equal(await health(), tree.plans, "existing browse server left running");
     } finally {
@@ -102,26 +103,9 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
 
   test("a missing directory fails without touching the running server", async () => {
     const r = run([join(tree.root, "nope"), port]);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /no such directory/);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /no such file or directory/);
     assert.equal(await health(), tree.plans);
-  });
-
-  describe("vanity host lookup", () => {
-    for (const [label, file, host, want] of [
-      ["name mapped to 127.0.0.1", null, undefined, "plans.localhost"],
-      ["partial name doesn't match", null, "plans", "localhost"],
-      ["a word in the trailing comment doesn't match", null, "browse", "localhost"],
-      ["a commented-out entry doesn't match", "#127.0.0.1 plans.localhost\n", undefined, "localhost"],
-      ["tab-separated entry among aliases matches", "127.0.0.1\tfoo plans.localhost bar\n", undefined, "plans.localhost"],
-    ]) {
-      test(label, () => {
-        const hostsFile = file === null ? hosts : join(tree.root, `hosts-${want}-${label.length}`);
-        if (file !== null) writeFileSync(hostsFile, file);
-        const r = run([tree.plans, port], { BROWSE_HOSTS_FILE: hostsFile, ...(host ? { BROWSE_HOST: host } : {}) });
-        assert.equal(r.stdout.trim(), `http://${want}:${port} (already running)`);
-      });
-    }
   });
 });
 

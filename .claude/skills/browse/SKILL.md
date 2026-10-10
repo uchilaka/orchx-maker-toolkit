@@ -57,20 +57,22 @@ What would you like to browse?
 
 Ask the user to pick a number.
 
-### Step 2: Ensure exactly one server, serving that path
+### Step 2: Ensure a server for that path
 
 ```bash
-~/.claude/skills/browse/ensure-server.sh <path> --open
+node ~/.claude/skills/browse/browse-ctl.mjs ensure <path> --open
 ```
 
-One command replaces the old kill-then-start steps. It:
-- keeps a browse server already serving `<path>`, so open tabs keep their live reload
-- stops every other browse server, on any port
-- never kills a process that isn't a browse server — if one holds port 3200 it exits 1 and names it
-- starts the server detached (log: `~/.claude/state/browse-server.log`) and waits until it answers
-- opens the browser only if it started a new server
+`<path>` can be a folder or a single `.md` file. The command:
+- reuses a live server whose folder is `<path>` or contains it, and prints a deep link into it, so open tabs keep their live reload
+- otherwise starts one on the first free port from 3200 to 3220, owned by this Claude session (`CLAUDE_CODE_SESSION_ID`). A file gets its folder served, with the link pointing at the file
+- leaves every other browse server running: parallel sessions each keep their own
+- skips a port held by anything else, and never kills it
+- opens the browser only if it started a new server. When it prints `(already running)` and the user wants to see it, run `open <url>`
 
-It prints the URL, followed by `(started)` or `(already running)`. The URL is `http://plans.localhost:3200` once `/etc/hosts` maps that name (see **Vanity URL**), and `http://localhost:3200` until then.
+It prints the URL, followed by `(started)` or `(already running)`. The host is `plans.localhost` once `/etc/hosts` maps it (see **Vanity URL**), and `localhost` until then.
+
+Each live server has a registry entry, `~/.claude/state/browse/<port>.json`, with its pid, path, URL, owner and start time. `browse-ctl.mjs list` shows them. Stale entries (dead or reused pid, or a server no longer serving that path) are pruned on every run.
 
 ### Step 3: Stand by
 
@@ -80,13 +82,13 @@ Tell the user:
 
 ### Step 4: Tear down
 
-When the user says "done" (or any clear signal they're finished), stop it:
+When the user says "done" (or any clear signal they're finished), stop this session's servers:
 
 ```bash
-pkill -f skills/browse/serve-md.mjs
+node ~/.claude/skills/browse/browse-ctl.mjs stop --mine
 ```
 
-Confirm the server has been stopped. The next session start brings `~/project-plans` back (see **Autostart**).
+This stops only servers this session started. Other sessions' servers and the shared `~/project-plans` autostart keep running. To stop one specifically, use `stop --port <port>`; `stop --all` stops every registered server. Confirm what was stopped from its output.
 
 ## Notes
 
@@ -94,8 +96,8 @@ Confirm the server has been stopped. The next session start brings `~/project-pl
 - Live reload works via Server-Sent Events — no browser extensions needed.
 - Directory mode shows a card-based index of all `.md` files with click-through to rendered previews.
 - If `node` is not available, fall back to `yarn dlx serve` for raw file serving.
-- Port 3200 is the default; the server will bind to localhost only.
-- `GET /__health` returns the path being served, as plain text. `ensure-server.sh` relies on it.
+- Ports come from 3200–3220, first free wins (`BROWSE_PORT_MIN`/`BROWSE_PORT_MAX` override the range); servers bind to 127.0.0.1 only. Each server logs to `~/.claude/state/browse/<port>.log`.
+- `GET /__health` returns the path being served, as plain text. `browse-ctl.mjs` relies on it to verify a registry entry before trusting or signalling it.
 
 ## Autostart
 
@@ -105,11 +107,11 @@ A `SessionStart` hook (matcher `startup`) in `~/.claude/settings.json` runs:
 ensure-server.sh ~/project-plans --open >/dev/null 2>&1
 ```
 
-Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. If you've browsed something else, the next new session switches the server back to `~/project-plans`, since there's only ever one server.
+Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. `ensure-server.sh` is a thin wrapper over `browse-ctl.mjs ensure --shared`, kept so this hook didn't have to change. Its servers are owned by `shared`, so no session's `stop --mine` takes them down, and browsing something else no longer replaces them.
 
 ## Vanity URL
 
-`/etc/hosts` maps a name to an address, never a port, so the URL keeps `:3200`. Removing the port would need a reverse proxy on port 80.
+`/etc/hosts` maps a name to an address, never a port, so the URL keeps its port (`:3200` for the autostart). Removing the port would need a reverse proxy on port 80.
 
 Use `plans.localhost`, not `.local` or `.test`:
 - `.local` names go through a multicast-DNS (Bonjour) lookup first on macOS, which can stall for seconds.
@@ -136,7 +138,9 @@ Built-in `node:test`, so there's still nothing to install. Pass the glob, not th
 |---|---|
 | `render.test.mjs` | Markdown renderer, page shell, theme script (every OS-setting × saved-choice combination, run in a stub DOM) |
 | `server.test.mjs` | `/__health`, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
-| `ensure-server.test.mjs` | One-server policy, foreign-port refusal, vanity-host lookup, the `SessionStart` hook |
+| `registry.test.mjs` | The server writes its registry entry on listen and removes it on exit, never removing a newer server's |
+| `ctl.test.mjs` | `ensure` reuse, deep links, port scan, foreign-port skip and refusal, vanity-host lookup; stale-entry pruning; `list`; `stop --mine/--port/--all` |
+| `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the `SessionStart` hook |
 | `tailwind.test.mjs` | Compiles every class with a real Tailwind 3.4. The Play CDN skips a class it can't build without any error, so this is the only check that would catch one. Skipped unless `TAILWIND_DIR` (default: `cami-ritv`) has `tailwindcss` installed |
 
-`ensure-server.test.mjs` runs a **copy** of the skill from a temp folder. The script stops every browse server started from its own path, so running tests never stops the real `plans.localhost` server.
+Every test uses its own registry (`BROWSE_STATE_DIR` or a temp `HOME`) and a port range away from 3200, and `stop` only signals servers in its own registry, so running tests never touches the real `plans.localhost` server.

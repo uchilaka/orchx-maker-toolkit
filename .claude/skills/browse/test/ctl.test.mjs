@@ -140,6 +140,13 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       }
     });
 
+    test("an already-served path is reused even when --port names another port", async () => {
+      ctl(["ensure", tree.plans]);
+      const r = ctl(["ensure", tree.plans, "--port", String(base + 4)]);
+      assert.equal(r.stdout.trim(), `http://localhost:${base} (already running)`);
+      assert.equal(entries().length, 1);
+    });
+
     test("an explicit --port is used when free", async () => {
       const r = ctl(["ensure", tree.plans, "--port", String(base + 3)]);
       assert.equal(r.stdout.trim(), `http://localhost:${base + 3} (started)`);
@@ -162,11 +169,21 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       assert.equal(entryAt(base).owner, "shared");
     });
 
-    test("uses the vanity host once the hosts file maps it", async () => {
-      const hosts = join(tree.root, "hosts2");
-      writeFileSync(hosts, "127.0.0.1 plans.localhost   # /browse\n");
-      const r = ctl(["ensure", tree.plans], { BROWSE_HOSTS_FILE: hosts });
-      assert.equal(r.stdout.trim(), `http://plans.localhost:${base} (started)`);
+    describe("vanity host lookup", () => {
+      for (const [label, file, host, want] of [
+        ["name mapped to 127.0.0.1", "127.0.0.1 plans.localhost   # /browse preview server\n", undefined, "plans.localhost"],
+        ["partial name doesn't match", "127.0.0.1 plans.localhost   # /browse preview server\n", "plans", "localhost"],
+        ["a word in the trailing comment doesn't match", "127.0.0.1 plans.localhost   # /browse preview server\n", "browse", "localhost"],
+        ["a commented-out entry doesn't match", "#127.0.0.1 plans.localhost\n", undefined, "localhost"],
+        ["tab-separated entry among aliases matches", "127.0.0.1\tfoo plans.localhost bar\n", undefined, "plans.localhost"],
+      ]) {
+        test(label, () => {
+          const hosts = join(tree.root, "hosts-vanity");
+          writeFileSync(hosts, file);
+          const r = ctl(["ensure", tree.plans], { BROWSE_HOSTS_FILE: hosts, ...(host ? { BROWSE_HOST: host } : {}) });
+          assert.equal(r.stdout.trim(), `http://${want}:${base} (started)`);
+        });
+      }
     });
 
     test("a missing path is a usage error", () => {
