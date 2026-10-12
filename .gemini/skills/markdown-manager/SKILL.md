@@ -10,8 +10,8 @@ You are an expert in documentation discipline and technical writing. When managi
 ## 1. Documentation Discipline
 - **Consistent Structure:** Ensure project plans and PR reviews follow defined formats (searchable, diffable, and durable).
 - **Canonical Locations:**
-  - Project plans ➡️ `~/project-plans/<project>/`
-  - PR reviews ➡️ `~/pr-reviews/<project>/` using naming: `<JIRA>_PR-<NUM>_<slug>.md`
+  - Project plans ➡️ `~/project-plans/<project>/` <!-- publish-prep: allow portability — the skill's documented default locations -->
+  - PR reviews ➡️ `~/pr-reviews/<project>/` using naming: `<JIRA>_PR-<NUM>_<slug>.md` <!-- publish-prep: allow portability — the skill's documented default locations -->
 - **Automatic Triggers:** If a task involves planning or reviewing, automatically save the artifacts to these locations.
 
 ## 2. Structure Guidelines

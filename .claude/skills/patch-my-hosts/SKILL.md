@@ -10,8 +10,9 @@ Refresh the upstream hosts blocklist from https://someonewhocares.org/hosts/ int
 
 ## Prerequisites
 
-- macOS (uses `launchd` for the weekly refresh)
+- macOS (uses `launchd` for the weekly refresh), with its built-in `launchctl`, `dscacheutil` and `killall`
 - `curl` available
+- `shasum`, to write the archive's integrity sidecar
 - Custom entries (LarCity dev hostnames, app aliases, etc.) live OUTSIDE the managed block; the managed block contains only upstream content
 
 ## Workflow

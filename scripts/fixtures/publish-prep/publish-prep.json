@@ -1,0 +1,4 @@
+{
+  "internalDomains": ["example-corp.dev"],
+  "personalConventions": ["~/project-plans", "~/pr-reviews"]
+}
