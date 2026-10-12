@@ -27,6 +27,13 @@ function issueMarker(commentId) {
   return `<!-- pr-triage:handled issue=${commentId} -->`;
 }
 
+// The one footer every posted reply ends with. The marker comes first so editing
+// the visible text can't drop it. It names the gh account that posts (viewer),
+// never a person's name, so the skill works for whoever runs it.
+function footer(viewer, marker = MARKER) {
+  return `${marker}\n\n—\nPosted by Claude Code on behalf of @${viewer}. Not a personal reply.`;
+}
+
 // GitHub reports bot authors as __typename "Bot" (GraphQL) or type "Bot" (REST);
 // some apps only show it in the "[bot]" login suffix.
 function isBotAuthor(author) {
@@ -217,4 +224,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { MARKER, issueMarker, normalize, filter, chooseMode, approvalRequired };
+module.exports = { MARKER, issueMarker, footer, normalize, filter, chooseMode, approvalRequired };

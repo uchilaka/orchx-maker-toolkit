@@ -9,7 +9,7 @@ const path = require('path');
 
 const SKILL = path.join(__dirname, '..', '.claude', 'skills', 'pr-triage');
 const FIXTURES = path.join(__dirname, 'fixtures', 'pr-triage');
-const { MARKER, issueMarker, normalize, filter, chooseMode, approvalRequired } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
+const { MARKER, issueMarker, footer, normalize, filter, chooseMode, approvalRequired } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
 const { validate } = require(path.join(SKILL, 'scripts', 'post-reply.cjs'));
 
 const graphql = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'review-threads.json'), 'utf8'));
@@ -129,36 +129,63 @@ test('approvalRequired is off only for the after-push run', () => {
   assert.strictEqual(approvalRequired(['--after-push', '--fix']), false);
 });
 
-// --- Replies: the marker, and the S11 shape of a top-level reply ---------------
+// --- S5: one footer, naming the account that posts ---------------------------
 
-const footer = `\n\n${MARKER}\n\n—\nPosted by Claude on behalf of @uchilaka.`;
+const me = { viewer: 'uchilaka' };
 
-test('validate refuses a review reply without the handled marker', () => {
-  const res = validate('review', 'VALID: fixed in abc1234.');
-  assert.strictEqual(res.ok, false);
-  assert.match(res.errors.join('\n'), /marker/);
+test('footer puts the marker first and names the viewer, not a person', () => {
+  const f = footer('uchilaka');
+  assert.ok(f.startsWith(MARKER), 'the marker must come first so an edit to the text cannot drop it');
+  assert.match(f, /on behalf of @uchilaka\b/);
+  assert.doesNotMatch(f, /Uche/);
 });
 
-test('validate accepts a review reply with the marker', () => {
-  assert.deepStrictEqual(validate('review', `VALID: fixed in abc1234.${footer}`), { ok: true, errors: [] });
+test('footer carries the issue marker for a top-level reply', () => {
+  assert.ok(footer('uchilaka', issueMarker(2005)).startsWith(issueMarker(2005)));
+});
+
+test('validate refuses a review reply without the footer', () => {
+  const res = validate('review', `VALID: fixed in abc1234.\n\n${MARKER}`, me);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.errors.join('\n'), /footer/);
+});
+
+test('validate refuses a footer naming someone other than the viewer', () => {
+  const body = `VALID: fixed in abc1234.\n\n${footer('someone-else')}`;
+  assert.strictEqual(validate('review', body, me).ok, false);
+});
+
+test('validate refuses the old first-person attribution', () => {
+  const body = `VALID: fixed in abc1234.\n\n${MARKER}\n\n—\nPosted by Claude on Uche's behalf.`;
+  assert.strictEqual(validate('review', body, me).ok, false);
+});
+
+test('validate refuses a reply when the viewer is unknown', () => {
+  const res = validate('review', `VALID.\n\n${footer('uchilaka')}`);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.errors.join('\n'), /viewer/);
+});
+
+test('validate accepts a review reply ending with the footer', () => {
+  assert.deepStrictEqual(validate('review', `VALID: fixed in abc1234.\n\n${footer('uchilaka')}\n`, me), { ok: true, errors: [] });
 });
 
 test('validate refuses a top-level reply that does not quote and mention the original', () => {
-  const body = `OUT-OF-SCOPE: tracked in LAR-397.\n\n${issueMarker(2005)}`;
-  const res = validate('issue', body, { replyTo: 2005, author: 'teammate' });
+  const body = `OUT-OF-SCOPE: tracked in LAR-397.\n\n${footer('uchilaka', issueMarker(2005))}`;
+  const res = validate('issue', body, { ...me, replyTo: 2005, author: 'teammate' });
   assert.strictEqual(res.ok, false);
   assert.match(res.errors.join('\n'), /quote/);
   assert.match(res.errors.join('\n'), /@teammate/);
 });
 
 test('validate refuses a top-level reply whose marker names a different comment', () => {
-  const body = `> README.md still says…\n\n@teammate Fixed.\n\n${issueMarker(9999)}`;
-  assert.strictEqual(validate('issue', body, { replyTo: 2005, author: 'teammate' }).ok, false);
+  const body = `> README.md still says…\n\n@teammate Fixed.\n\n${footer('uchilaka', issueMarker(9999))}`;
+  assert.strictEqual(validate('issue', body, { ...me, replyTo: 2005, author: 'teammate' }).ok, false);
 });
 
 test('validate accepts a well-formed top-level reply', () => {
-  const body = `> README.md still says .claude/skills/ is scoped to this repo only.\n\n@teammate VALID: fixed in abc1234.\n\n${issueMarker(2005)}`;
-  assert.deepStrictEqual(validate('issue', body, { replyTo: 2005, author: 'teammate' }), { ok: true, errors: [] });
+  const body = `> README.md still says .claude/skills/ is scoped to this repo only.\n\n@teammate VALID: fixed in abc1234.\n\n${footer('uchilaka', issueMarker(2005))}`;
+  assert.deepStrictEqual(validate('issue', body, { ...me, replyTo: 2005, author: 'teammate' }), { ok: true, errors: [] });
 });
 
 // --- SKILL.md lint: the decisions that live in prose ---------------------------
@@ -193,6 +220,10 @@ function lintSkill(text) {
   if (!/--after-push/.test(text) || !/go-ahead/i.test(text)) {
     errors.push('SKILL.md does not describe the approval gate and its --after-push exemption (S4)');
   }
+  // S5: the attribution comes from the viewer, never a hard-coded name.
+  if (/Posted by [^\n]*on \w+'s behalf/i.test(text) || !/on behalf of @<viewer>/.test(text)) {
+    errors.push('SKILL.md hard-codes who the reply is from instead of naming @<viewer> (S5)');
+  }
   return errors;
 }
 
@@ -219,6 +250,10 @@ test('lintSkill catches a SKILL.md without route-only mode', () => {
 
 test('lintSkill catches a SKILL.md without the approval gate', () => {
   assert.ok(lintSkill('## Deferrals\n\nNothing.\n').some((e) => /S4/.test(e)));
+});
+
+test('lintSkill catches the old hard-coded attribution', () => {
+  assert.ok(lintSkill("Posted by Claude on Uche's behalf.").some((e) => /S5/.test(e)));
 });
 
 test('pr-triage SKILL.md passes the lint', () => {

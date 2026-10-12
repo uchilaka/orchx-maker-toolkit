@@ -11,28 +11,39 @@
 //     Answer a top-level comment: the one top-level post the skill may make. The
 //     body must quote the original, @-mention its author, and carry
 //     issueMarker(<reply-to-comment-id>).
+//   Every body must end with footer(<viewer>, <marker>) from threads.cjs; the
+//   viewer is the authenticated gh account.
 //   --dry-run prints the request instead of sending it.
 //
 // Exit codes:
 //   0 - posted (prints the new comment's URL), or the dry-run request
 //   1 - bad arguments, or the body was refused (reasons on stderr)
-//   2 - gh missing or unauthenticated
+//   2 - gh missing or unauthenticated (checked before the body, even on --dry-run)
 //   3 - the API call failed
 
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { MARKER, issueMarker } = require(path.join(__dirname, 'threads.cjs'));
+const { MARKER, issueMarker, footer } = require(path.join(__dirname, 'threads.cjs'));
+
+// The body must end with footer(viewer, <marker>): that covers both the handled
+// marker and the attribution, so neither can drift from the one definition.
+function checkFooter(errors, body, viewer, marker) {
+  if (!viewer) {
+    errors.push('the viewer (the gh account posting) is unknown, so the footer cannot be checked');
+  } else if (!body.trimEnd().endsWith(footer(viewer, marker))) {
+    errors.push(`the reply must end with the footer (handled marker, then attribution):\n${footer(viewer, marker)}`);
+  }
+}
 
 function validate(kind, body, opts = {}) {
   const errors = [];
+  const { viewer } = opts;
   if (kind === 'review') {
-    if (!body.includes(MARKER)) errors.push(`the reply is missing the handled marker ${MARKER}`);
+    checkFooter(errors, body, viewer, MARKER);
   } else if (kind === 'issue') {
     const { replyTo, author } = opts;
-    if (!body.includes(issueMarker(replyTo))) {
-      errors.push(`the reply is missing the handled marker for comment ${replyTo}: ${issueMarker(replyTo)}`);
-    }
+    checkFooter(errors, body, viewer, issueMarker(replyTo));
     if (!/^> \S/m.test(body)) errors.push('a top-level reply must quote the comment it answers');
     if (!new RegExp(`@${author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body)) {
       errors.push(`a top-level reply must @-mention the original author, @${author}`);
@@ -68,7 +79,15 @@ function main() {
   }
   const body = fs.readFileSync(bodyFile, 'utf8');
 
-  const res = validate(kind, body, { replyTo: Number(id), author });
+  // Checked before validation, even on --dry-run: the footer must name the
+  // account that will actually post.
+  if (spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' }).status !== 0) {
+    process.stderr.write('ERROR: gh CLI not installed or not authenticated\n');
+    process.exit(2);
+  }
+  const viewer = spawnSync('gh', ['api', 'user', '-q', '.login'], { encoding: 'utf8' }).stdout.trim();
+
+  const res = validate(kind, body, { replyTo: Number(id), author, viewer });
   if (!res.ok) {
     process.stderr.write(`REFUSED:\n${res.errors.map((e) => `  - ${e}`).join('\n')}\n`);
     process.exit(1);
@@ -83,10 +102,6 @@ function main() {
     return;
   }
 
-  if (spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' }).status !== 0) {
-    process.stderr.write('ERROR: gh CLI not installed or not authenticated\n');
-    process.exit(2);
-  }
   // The body goes in on stdin as JSON, never through a shell.
   const post = spawnSync('gh', ['api', endpoint, '--method', 'POST', '--input', '-'],
     { input: payload, encoding: 'utf8' });

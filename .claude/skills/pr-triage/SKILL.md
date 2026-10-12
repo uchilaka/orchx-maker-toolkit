@@ -45,7 +45,7 @@ The register differs only because the *reader* differs — see Replies below.
 
 ## What it may do without asking (after a push)
 
-- **Post a reply** on each thread, attributed as Claude on the user's behalf.
+- **Post a reply** on each thread, ending with the footer below.
 - **Apply, commit and push** a fix for a VALID finding, and cite the SHA in the reply.
 - **Resolve a thread it decisively addressed.** Decisively means: the fix is pushed and
   verified, or the finding is INVALID with reproduction output in the reply.
@@ -143,18 +143,23 @@ Always leave the door open on an INVALID: name what would change your mind. "Hap
 wrong if you're seeing this on a different Ruby — the version you reproduced on would
 settle it."
 
-End every posted reply with the handled marker, then the attribution line:
+End every posted reply with this footer, marker first so an edit to the text above it
+can't drop it. `<viewer>` is the `viewer` field from `threads.cjs`, the account the reply
+posts as:
 
 ```
 <!-- pr-triage:handled -->
 
 —
-Posted by Claude on Uche's behalf.
+Posted by Claude Code on behalf of @<viewer>. Not a personal reply.
 ```
 
-The marker is what keeps a later run from triaging the thread again. A reply to a
-top-level comment carries `<!-- pr-triage:handled issue=<comment-id> -->` instead, since
-there is no thread to hold the plain marker.
+A reply to a top-level comment uses `<!-- pr-triage:handled issue=<comment-id> -->` as its
+marker instead, since there is no thread to hold the plain one. The marker is what keeps a
+later run from triaging the thread again.
+
+Never write the reply body in the first person as the account's owner. The footer says
+Claude wrote it; a body saying "I'll fix this" contradicts it.
 
 Post through `${CLAUDE_SKILL_DIR}/scripts/post-reply.cjs`, which refuses a body that
 breaks these rules:
@@ -164,7 +169,8 @@ post-reply.cjs review <owner/repo> <pr> <root-comment-id> <body-file>
 post-reply.cjs issue  <owner/repo> <pr> <reply-to-comment-id> <author> <body-file>
 ```
 
-`--dry-run` prints the request without sending it. Exit 1 means the body was refused;
+`--dry-run` prints the request without sending it. Exit 1 means the body was refused,
+including a footer that doesn't match `viewer` exactly;
 fix what it names rather than working around it.
 
 ## Deferrals
