@@ -8,7 +8,7 @@
       "name": "orchx-maker",
       "source": "./",
       "description": "Claude-native skills from the OrchX Maker Toolkit",
-      "skills": ["./.claude/skills/patch-my-hosts", "./.claude/skills/llm-wikify"]
+      "skills": ["./.claude/skills/patch-my-hosts", "./.claude/skills/llm-wikify", "./.claude/skills/browser-test-assist"]
     }
   ]
 }
