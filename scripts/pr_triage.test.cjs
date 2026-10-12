@@ -9,7 +9,7 @@ const path = require('path');
 
 const SKILL = path.join(__dirname, '..', '.claude', 'skills', 'pr-triage');
 const FIXTURES = path.join(__dirname, 'fixtures', 'pr-triage');
-const { MARKER, issueMarker, normalize, filter, chooseMode } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
+const { MARKER, issueMarker, normalize, filter, chooseMode, approvalRequired } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
 const { validate } = require(path.join(SKILL, 'scripts', 'post-reply.cjs'));
 
 const graphql = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'review-threads.json'), 'utf8'));
@@ -117,6 +117,18 @@ test('chooseMode refuses --fix and --route-only together', () => {
   assert.throws(() => chooseMode({ prAuthor: 'uchilaka', viewer: 'uchilaka', flags: ['--fix', '--route-only'] }), /both/);
 });
 
+// --- S4: approval before anything leaves the machine, except after a push -------
+
+test('approvalRequired on a manual run', () => {
+  assert.strictEqual(approvalRequired([]), true);
+  assert.strictEqual(approvalRequired(['--route-only']), true);
+});
+
+test('approvalRequired is off only for the after-push run', () => {
+  assert.strictEqual(approvalRequired(['--after-push']), false);
+  assert.strictEqual(approvalRequired(['--after-push', '--fix']), false);
+});
+
 // --- Replies: the marker, and the S11 shape of a top-level reply ---------------
 
 const footer = `\n\n${MARKER}\n\n—\nPosted by Claude on behalf of @uchilaka.`;
@@ -177,6 +189,10 @@ function lintSkill(text) {
   if (!/route-only/.test(text) || !/route-only[\s\S]{0,400}VALID[^.]*ticket/i.test(text)) {
     errors.push('SKILL.md does not describe route-only mode turning VALID findings into tickets (S3)');
   }
+  // S4: a manual run waits for go-ahead; only --after-push skips it.
+  if (!/--after-push/.test(text) || !/go-ahead/i.test(text)) {
+    errors.push('SKILL.md does not describe the approval gate and its --after-push exemption (S4)');
+  }
   return errors;
 }
 
@@ -199,6 +215,10 @@ test('lintSkill catches a "Never" section without the S11 exception', () => {
 
 test('lintSkill catches a SKILL.md without route-only mode', () => {
   assert.ok(lintSkill('## Deferrals\n\nNothing.\n').some((e) => /S3/.test(e)));
+});
+
+test('lintSkill catches a SKILL.md without the approval gate', () => {
+  assert.ok(lintSkill('## Deferrals\n\nNothing.\n').some((e) => /S4/.test(e)));
 });
 
 test('pr-triage SKILL.md passes the lint', () => {

@@ -43,7 +43,7 @@ trust prior by author would be a bias that ages badly as bots improve.
 
 The register differs only because the *reader* differs — see Replies below.
 
-## What it may do unattended
+## What it may do without asking (after a push)
 
 - **Post a reply** on each thread, attributed as Claude on the user's behalf.
 - **Apply, commit and push** a fix for a VALID finding, and cite the SHA in the reply.
@@ -63,6 +63,33 @@ on your own PR, or `--fix` to opt in on someone else's.
 In route-only mode, verify and classify exactly as above, but never edit, commit or push.
 A VALID finding becomes a ticket instead of a fix, filed and replied to like an
 OUT-OF-SCOPE one, and its thread stays open for the PR's author to close.
+
+### Approval before anything leaves the machine
+
+`threads.cjs` also reports `approval`. It is `true` on every manual run: verify, classify
+and draft, then show one batch and wait for explicit go-ahead before posting a reply,
+filing a ticket or plan, pushing a commit or resolving a thread. Local edits and local
+commits don't need it.
+
+```
+## Fix (pushes <n> commits)
+- api/foo.rb:42 (@reviewer) VALID → <one-line fix>
+  Reply: "…"
+## Ticket / plan
+- README.md:110 (@reviewer) OUT-OF-SCOPE → new ticket, Medium, under <parent>
+  Reply: "…"
+## Reply only
+- … INVALID / ALREADY-FIXED, with the evidence each reply will carry
+## Needs your input (nothing posted)
+- … why it stopped
+```
+
+The go-ahead can change the batch: an answer to a "needs your input" item may turn it
+into a fix, a ticket or a reply. Re-show only what changed.
+
+The one run without the gate is the after-push hook's, which tells the session to run
+`/pr-triage --after-push`. That run was started by a push you just made, and it posts on
+its own as described above. Never pass `--after-push` from a manual run.
 
 ## Stop and hand back when
 

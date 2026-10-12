@@ -3,9 +3,10 @@
 // them into one list of threads, and split that into what needs triage and what
 // to skip (with a reason). Behavior is pinned by scripts/pr_triage.test.cjs.
 //
-// Usage: threads.cjs [pr-number] [--route-only | --fix]
-//   Prints {repo, pr, url, viewer, prAuthor, mode, toTriage[], skipped[]} as JSON.
-//   mode is 'fix' or 'route-only'; see chooseMode.
+// Usage: threads.cjs [pr-number] [--route-only | --fix] [--after-push]
+//   Prints {repo, pr, url, viewer, prAuthor, mode, approval, toTriage[], skipped[]}
+//   as JSON. mode is 'fix' or 'route-only' (see chooseMode); approval says whether
+//   to wait for go-ahead before posting (see approvalRequired).
 //
 // Exit codes:
 //   0 - JSON printed to stdout
@@ -128,6 +129,13 @@ function chooseMode({ prAuthor, viewer, flags = [] }) {
   return prAuthor === viewer ? 'fix' : 'route-only';
 }
 
+// A manual run shows everything it would post, file or push, and waits for
+// go-ahead. The after-push hook's run is the one exception: it was started by a
+// push I just made, and it posts on its own as it always has.
+function approvalRequired(flags = []) {
+  return !flags.includes('--after-push');
+}
+
 // --- CLI -----------------------------------------------------------------------
 
 const QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
@@ -203,9 +211,10 @@ function main() {
   }
   const { toTriage, skipped } = filter(normalize(merged, issueComments));
   const pr = merged.data.repository.pullRequest;
-  process.stdout.write(`${JSON.stringify({ repo, pr: pr.number, url: pr.url, viewer, prAuthor, mode, toTriage, skipped }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ repo, pr: pr.number, url: pr.url, viewer, prAuthor, mode,
+    approval: approvalRequired(flags), toTriage, skipped }, null, 2)}\n`);
 }
 
 if (require.main === module) main();
 
-module.exports = { MARKER, issueMarker, normalize, filter, chooseMode };
+module.exports = { MARKER, issueMarker, normalize, filter, chooseMode, approvalRequired };
