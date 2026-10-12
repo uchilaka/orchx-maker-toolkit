@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "strict": false,
+  "target": "/r/.claude-plugin/marketplace.json",
+  "manifest": {
+    "file": "/r/.claude-plugin/marketplace.json",
+    "type": "marketplace",
+    "notes": [],
+    "gatingHooks": [],
+    "errors": [],
+    "warnings": [
+      {
+        "path": "description",
+        "message": "Marketplace has no description",
+        "code": null
+      }
+    ]
+  },
+  "contents": []
+}
