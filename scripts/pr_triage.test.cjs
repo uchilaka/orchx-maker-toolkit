@@ -145,8 +145,24 @@ function lintSkill(text) {
       /author is `?viewer`?/i.test(text)) {
     errors.push('SKILL.md skips threads the viewer wrote, which drops self-review findings (S1 finding 2)');
   }
+  // S2: out-of-scope work that needs design first gets a plan. The plan file is
+  // local, so the reply must cite something a reviewer can open.
+  const deferrals = (text.split(/^## Deferrals\s*$/m)[1] || '').split(/^## /m)[0];
+  if (!/project-plans/.test(deferrals) || !/Notion[^.]*loaded/i.test(deferrals)) {
+    errors.push('the "Deferrals" section does not describe the S2 plan route (project-plans, Notion only where loaded)');
+  }
+  if (!/reviewer can open|can't open|cannot open/i.test(deferrals)) {
+    errors.push('the "Deferrals" section does not say a plan reply must cite something the reviewer can open (S2)');
+  }
   return errors;
 }
+
+test('lintSkill catches a "Deferrals" section without the S2 plan route', () => {
+  const text = '## Deferrals\n\nOUT-OF-SCOPE findings become a Linear issue.\n';
+  const errors = lintSkill(text);
+  assert.ok(errors.some((e) => /S2 plan route/.test(e)));
+  assert.ok(errors.some((e) => /reviewer can open/.test(e)));
+});
 
 test('lintSkill catches /pr-comment-triage\'s viewer filter (proves the lint can fail)', () => {
   const legacy = "- The root comment's author is `viewer` (the authenticated `gh` user) — that's the user's own comment, not incoming feedback.";

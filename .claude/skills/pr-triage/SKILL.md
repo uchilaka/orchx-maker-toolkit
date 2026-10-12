@@ -28,7 +28,7 @@ Then classify:
 | **VALID** | Reproduced. The failure is real. | Fix, unless a stop condition fires |
 | **ALREADY-FIXED** | Real once; a later commit addressed it | Reply citing the SHA, resolve |
 | **INVALID** | Does not reproduce, and you can show why | Reply with the evidence. Do **not** fix |
-| **OUT-OF-SCOPE** | Real, but not this PR's job | Linear ticket + inline TODO, reply with the ID |
+| **OUT-OF-SCOPE** | Real, but not this PR's job | Linear ticket + inline TODO (plus a plan if it needs design), reply with the ID |
 
 **Show the classification table before changing anything.** A finding you cannot classify
 with evidence is inconclusive — that is a stop condition, not a reason to guess.
@@ -63,6 +63,8 @@ Any one of these, even mid-run. Report what is done, what is pending, and why yo
    secrets, or anything that must be safe on a live table. Draft the fix, do not push it.
 3. **The finding implies a design decision** — a choice between valid approaches rather
    than a correction. Ask the reviewer which they meant; that is usually the real answer.
+   This is for a choice inside this PR. Real work outside it that needs design first is
+   OUT-OF-SCOPE and gets a plan — see Deferrals.
 4. **A human replied to Claude's reply.** Stop rather than arguing autonomously in public
    on someone's behalf.
 
@@ -136,6 +138,21 @@ only in a PR comment rots the moment the PR merges.
 
 Link each ticket to the PR, its thread and a per-PR parent ticket following
 `${CLAUDE_SKILL_DIR}/references/deferred-tickets.md`. Read it before filing the first ticket.
+
+**When the work needs design before a ticket can stand alone** (a rethink, a new
+capability, a choice between approaches that outlives this PR), write a plan first:
+
+1. Save it to `~/project-plans/<project>/<SLUG>.md` using the plan template in
+   `~/CLAUDE.md`, with `## Status: PROPOSED`. Context quotes the comment and links the
+   thread; Approach holds the problem, the options and the affected files; open questions
+   go in the Tracker as unchecked boxes, so the session-start reminder surfaces them.
+2. File the ticket as usual, and say in its body that a plan exists, naming the file.
+3. Reply with the ticket ID. A reviewer can't open a file on your machine, so a plan path
+   alone is never the reply.
+
+Use Notion instead of `~/project-plans/` only when the Notion tools are loaded and the
+repo's memory names a Notion destination. That holds in platform-monorepo, nowhere else
+by default.
 
 ## Never
 
