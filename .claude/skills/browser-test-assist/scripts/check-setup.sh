@@ -13,6 +13,8 @@ check() { # check <label> <command...>
   if "$@" >/dev/null 2>&1; then echo "PASS  $label"; else echo "FAIL  $label"; fail=1; fi
 }
 
+# TODO(LAR-395): these are substring checks on joined args, bypassable via -u/-w,
+# kebab-case flags or --config=; a missing jq also reads as "not registered".
 args="$(jq -r '.mcpServers["chrome-devtools"].args // [] | join(" ")' "$HOME/.claude.json" 2>/dev/null)"
 
 check "chrome-devtools registered at user scope"  test -n "$args"
