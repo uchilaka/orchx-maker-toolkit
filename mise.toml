@@ -18,7 +18,7 @@ run = "git config core.hooksPath .githooks"
 
 [tasks.test]
 description = "Validate all skills via the gemini-cli Homebrew skill validator, then self-test the plugin validator"
-run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/validate_plugin.selftest.cjs"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/validate_plugin.selftest.cjs scripts/validate_skills.selftest.cjs"
 
 [tasks."build:gemini"]
 description = "Package .gemini/skills/* into dist/*.skill archives"
@@ -52,4 +52,6 @@ run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_gl
 # `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is
 # already installed, which would otherwise skip install:hooks on every machine
 # that has run setup before, and mise only warns on a failed postinstall.
-postinstall = "mise run install:hooks; mise run install:extensions"
+# CI skips the extension: no task needs it, and it would fetch a third-party
+# repo at HEAD on every run.
+postinstall = "mise run install:hooks; [ -n \"$CI\" ] || mise run install:extensions"
