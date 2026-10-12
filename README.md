@@ -123,7 +123,7 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
-The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`)
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `pr-triage`)
 can be installed for use from any project, as symlinks back to this checkout:
 
 ```sh
