@@ -1,6 +1,7 @@
 // ensure-server.sh is now a wrapper over browse-ctl.mjs (see ctl.test.mjs). These
 // tests run a COPY of the skill from a temp dir with its own HOME, so the real
 // registry and servers are never touched. `open` is shimmed so no tab appears.
+// TODO(LAR-400): run in place instead of copying the skill; test the default path.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, execSync } from "node:child_process";

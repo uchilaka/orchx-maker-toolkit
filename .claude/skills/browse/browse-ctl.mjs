@@ -217,6 +217,7 @@ function urlSuffix(rel, isDir) {
   return "/" + rel.split(sep).map(encodeSegment).join("/") + (isDir ? "/" : "");
 }
 
+// TODO(LAR-401): one usage constant per command, and braces on every branch.
 function parse(args) {
   const opts = { _: [] };
   for (let i = 0; i < args.length; i++) {
@@ -255,6 +256,8 @@ async function start(dir, port, owner, host) {
 
 async function ensure(opts) {
   if (opts._.length !== 1) throw new UsageError("usage: browse-ctl.mjs ensure <path> [--open] [--shared] [--port N]");
+  // TODO(LAR-398): realpath both sides, so /tmp vs /private/tmp or a symlinked
+  // folder is recognised as already served.
   const target = resolve(opts._[0]);
   let isDir;
   try {

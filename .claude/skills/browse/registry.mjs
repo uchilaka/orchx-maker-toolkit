@@ -19,6 +19,7 @@ export function ownerFromEnv(env = process.env) {
 }
 
 // Write to a temp file and rename, so a reader never sees half an entry.
+// TODO(LAR-398): open the temp file with "wx" so a planted symlink isn't followed.
 export function writeEntry(entry) {
   mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
   const file = entryFile(entry.port);

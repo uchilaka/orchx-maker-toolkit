@@ -11,6 +11,7 @@
 # - Other browse servers are left alone; any number can run, one per path.
 set -u
 
+# TODO(LAR-398): reject unknown --* arguments; extra ones are dropped, as before.
 open="" path="" port=""
 for a in "$@"; do
   case $a in

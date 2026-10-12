@@ -1,6 +1,7 @@
 // browse-ctl.mjs: ensure / list / stop over the registry. Every test gets its
 // own state dir and a port range far from 3200, so the real server is never
 // touched. `open` is shimmed so no tab appears.
+// TODO(LAR-400): usage-error table, SIGINT/SIGHUP, ancestor sort, stub harness.
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, spawn } from "node:child_process";

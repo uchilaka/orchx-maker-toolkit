@@ -580,6 +580,8 @@ export async function main(args = process.argv.slice(2)) {
     res.end(html);
   }
 
+  // TODO(LAR-399): reject a Host header other than localhost, 127.0.0.1 or
+  // BROWSE_HOST, against DNS rebinding.
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
