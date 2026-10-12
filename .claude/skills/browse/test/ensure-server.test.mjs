@@ -4,7 +4,7 @@
 // TODO(LAR-400): run in place instead of copying the skill; test the default path.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync, execSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -21,8 +21,10 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
     const r = await rawGet(`http://127.0.0.1:${p}`, "/__health").catch(() => null);
     return r && JSON.parse(r.body).path;
   };
+  // No shell: Linux's sh (dash) forks pgrep rather than exec'ing it, and the
+  // `sh -c` wrapper's own command line matches the pattern, adding a new PID per call.
   const serverPids = () => {
-    try { return execSync(`pgrep -f ${JSON.stringify(server)}`, { encoding: "utf8" }).trim().split("\n").filter(Boolean); }
+    try { return execFileSync("pgrep", ["-f", server], { encoding: "utf8" }).trim().split("\n").filter(Boolean); }
     catch { return []; }
   };
   const openCalls = () => (existsSync(opened) ? readFileSync(opened, "utf8").trim().split("\n").filter(Boolean) : []);
