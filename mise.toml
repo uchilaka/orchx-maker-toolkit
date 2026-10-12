@@ -45,8 +45,8 @@ description = "Remove ~/.claude/skills/ symlinks that point into this repo (all,
 run = "bash scripts/claude-global-skill.sh uninstall"
 
 [tasks."test:claude"]
-description = "Self-test the validator and the global-install script, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
-run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
+description = "Self-test the validator, the global-install script and /browse, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
+run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs '.claude/skills/browse/test/*.test.mjs' || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
 
 [hooks]
 # `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is
