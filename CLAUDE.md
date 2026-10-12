@@ -14,7 +14,7 @@ Your actual day-to-day Claude Code skill catalog (`bootstrap-worktree`, `summon-
 ## Working in this repo
 
 - Changes to Gemini skill behavior: edit `.gemini/skills/<name>/SKILL.md`, then `mise run build:gemini` and `mise run test` (validates every skill via the `gemini-cli` Homebrew validator).
-- Changes to the repo-local Claude skills (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`): edit `.claude/skills/<name>/` directly, then `mise run build:claude` (`claude plugin validate --strict`).
+- Changes to the repo-local Claude skills (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`): edit `.claude/skills/<name>/` directly, then `mise run build:claude`. That runs `claude plugin validate` and fails on any error or warning, except the one known warning that `CLAUDE.md` sits at the plugin root (`scripts/validate_plugin.cjs` says why).
 - Publishing a new Claude-native skill takes three edits: the skill directory, a `!` allowlist line in `.gitignore`, and an entry in `.claude-plugin/marketplace.json` → `plugins[0].skills`. Miss the last one and the skill validates but never ships.
 - The version lives in four places, and `/release` keeps them in step: `GEMINI.md`, `.claude-plugin/plugin.json` (`plugin.json` wins over any `version` on the marketplace entry, so the entry doesn't carry one), the `CHANGELOG.md` heading, and the git tag.
 - Do not port or rename `.gemini/skills/*` into `.claude/skills/*` by hand-copying files. A straight file-level mirror would create conflicting/duplicate concepts against the global Claude toolkit. The mount tasks below are the one sanctioned exception: they symlink, never copy, so there's still exactly one source file per skill.
