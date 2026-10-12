@@ -33,8 +33,9 @@ jobs:
       # Pinned: validate_plugin.cjs tolerates one known warning by its exact
       # wording, so a CLI upgrade should be a deliberate change here, not a
       # surprise red build.
+      # Install scripts stay on: the package fetches its native binary in one.
       - name: Install Claude Code CLI (pinned)
-        run: npm install -g --ignore-scripts @anthropic-ai/claude-code@2.1.296
+        run: npm install -g @anthropic-ai/claude-code@2.1.296
       - run: mise run test:claude
       # TODO(LAR-412): validate_plugin.cjs passes when marketplace.json is
       # missing; harden it on #16, whose copy is byte-identical.
