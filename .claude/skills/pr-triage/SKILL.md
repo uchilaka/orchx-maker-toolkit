@@ -68,8 +68,14 @@ Any one of these, even mid-run. Report what is done, what is pending, and why yo
 
 ## Working the threads
 
-1. **Fetch all threads, resolved state included**, via the GraphQL `reviewThreads` query —
-   the REST comments endpoint does not carry resolution state.
+1. **Fetch with `${CLAUDE_SKILL_DIR}/scripts/threads.cjs [pr-number]`.** It reads review
+   threads through GraphQL (the REST comments endpoint does not carry resolution state)
+   plus the PR's top-level comments, and splits them into `toTriage` and `skipped`, each
+   skip with a reason: `resolved`, `handled` (a reply already carries the marker), or
+   `ci-status` (a bot's CI or app status message, judged by content). Threads you wrote
+   yourself are kept: `/live-code-review` posts its findings under your account. Exit 2
+   means no open PR, 3 a `gh` problem, 4 a non-GitHub origin; report it and stop. Say how
+   many threads were skipped and why, so a short list doesn't read as "nothing to do."
 2. **Cluster by root cause before acting.** Five comments about one bad assumption are one
    fix and one explanation, repeated as five short replies that point at the same commit.
    Fixing them one at a time produces five divergent fixes.
@@ -98,12 +104,29 @@ Always leave the door open on an INVALID: name what would change your mind. "Hap
 wrong if you're seeing this on a different Ruby — the version you reproduced on would
 settle it."
 
-End every posted reply with the attribution line:
+End every posted reply with the handled marker, then the attribution line:
 
 ```
+<!-- pr-triage:handled -->
+
 —
 Posted by Claude on Uche's behalf.
 ```
+
+The marker is what keeps a later run from triaging the thread again. A reply to a
+top-level comment carries `<!-- pr-triage:handled issue=<comment-id> -->` instead, since
+there is no thread to hold the plain marker.
+
+Post through `${CLAUDE_SKILL_DIR}/scripts/post-reply.cjs`, which refuses a body that
+breaks these rules:
+
+```bash
+post-reply.cjs review <owner/repo> <pr> <root-comment-id> <body-file>
+post-reply.cjs issue  <owner/repo> <pr> <reply-to-comment-id> <author> <body-file>
+```
+
+`--dry-run` prints the request without sending it. Exit 1 means the body was refused;
+fix what it names rather than working around it.
 
 ## Deferrals
 
@@ -117,6 +140,8 @@ Link each ticket to the PR, its thread and a per-PR parent ticket following
 ## Never
 
 - Post a review, or a top-level PR comment. This skill replies **within** existing threads.
+  The one exception: feedback left as a top-level comment is answered with a top-level
+  reply that quotes it and `@`-mentions its author, since GitHub gives it no thread.
 - Resolve a thread you did not address, or one awaiting a human answer.
 - Force-push, or rewrite a pushed commit, while a review is open — it invalidates the
   threads anchored to those lines.

@@ -1,0 +1,119 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "number": 15,
+        "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15",
+        "reviewThreads": {
+          "pageInfo": { "hasNextPage": false, "endCursor": null },
+          "nodes": [
+            {
+              "id": "PRRT_kwDOR-u3Ps6rWCnK",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": ".claude/skills/browser-test-assist/SKILL.md",
+              "line": 147,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 4245082797,
+                    "author": { "__typename": "User", "login": "uchilaka" },
+                    "body": "🟢 **`check-setup.sh` was referenced without a path.** Under a plugin install, the model had to guess where the script lives.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r4245082797",
+                    "createdAt": "2026-10-12T06:04:21Z"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_resolved",
+              "isResolved": true,
+              "isOutdated": false,
+              "path": "README.md",
+              "line": 110,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1001,
+                    "author": { "__typename": "User", "login": "teammate" },
+                    "body": "Typo: 'skils'.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1001",
+                    "createdAt": "2026-10-11T10:00:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_handled",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "scripts/validate_claude_skills.test.cjs",
+              "line": 4,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1002,
+                    "author": { "__typename": "User", "login": "teammate" },
+                    "body": "No guard for the allowlist.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1002",
+                    "createdAt": "2026-10-11T10:05:00Z"
+                  },
+                  {
+                    "databaseId": 1003,
+                    "author": { "__typename": "User", "login": "uchilaka" },
+                    "body": "OUT-OF-SCOPE: tracked in LAR-394.\n\n<!-- pr-triage:handled -->\n\n—\nPosted by Claude on behalf of @uchilaka.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1003",
+                    "createdAt": "2026-10-11T11:00:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_legacy_handled",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": ".claude/skills/browser-test-assist/scripts/check-setup.sh",
+              "line": 16,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1004,
+                    "author": { "__typename": "User", "login": "teammate" },
+                    "body": "The personal-Chrome check is a substring match.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1004",
+                    "createdAt": "2026-10-11T10:10:00Z"
+                  },
+                  {
+                    "databaseId": 1005,
+                    "author": { "__typename": "User", "login": "uchilaka" },
+                    "body": "Ticketed as LAR-395.\n\n<!-- pr-comment-triage:handled -->",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1005",
+                    "createdAt": "2026-10-11T11:05:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_bot_reviewer",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": ".claude/skills/browser-test-assist/SKILL.md",
+              "line": 105,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1006,
+                    "author": { "__typename": "Bot", "login": "copilot-pull-request-reviewer" },
+                    "body": "Heap snapshots land in ~/browser-tests unredacted.",
+                    "url": "https://github.com/uchilaka/orchx-maker-toolkit/pull/15#discussion_r1006",
+                    "createdAt": "2026-10-11T09:00:00Z"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
