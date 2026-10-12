@@ -3,11 +3,13 @@
 // them into one list of threads, and split that into what needs triage and what
 // to skip (with a reason). Behavior is pinned by scripts/pr_triage.test.cjs.
 //
-// Usage: threads.cjs [pr-number]
-//   Prints {repo, pr, url, viewer, toTriage[], skipped[]} as JSON.
+// Usage: threads.cjs [pr-number] [--route-only | --fix]
+//   Prints {repo, pr, url, viewer, prAuthor, mode, toTriage[], skipped[]} as JSON.
+//   mode is 'fix' or 'route-only'; see chooseMode.
 //
 // Exit codes:
 //   0 - JSON printed to stdout
+//   1 - both --route-only and --fix given
 //   2 - no open PR for the current branch (and none given)
 //   3 - gh or jq missing, gh unauthenticated, or a GitHub API call failed
 //   4 - no 'origin' remote, or it isn't a github.com remote
@@ -114,6 +116,18 @@ function filter(threads) {
   return { toTriage, skipped };
 }
 
+// Whether this run may edit code. On my own PR it fixes; on anyone else's it only
+// routes (tickets, plans, replies), because pushing to a teammate's branch is
+// their call. --route-only and --fix override the default.
+function chooseMode({ prAuthor, viewer, flags = [] }) {
+  const routeOnly = flags.includes('--route-only');
+  const fix = flags.includes('--fix');
+  if (routeOnly && fix) throw new Error('pass --route-only or --fix, not both');
+  if (routeOnly) return 'route-only';
+  if (fix) return 'fix';
+  return prAuthor === viewer ? 'fix' : 'route-only';
+}
+
 // --- CLI -----------------------------------------------------------------------
 
 const QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
@@ -147,7 +161,9 @@ function gh(args, failCode = 3) {
 }
 
 function main() {
-  const given = process.argv[2];
+  const args = process.argv.slice(2);
+  const flags = args.filter((a) => a.startsWith('--'));
+  const given = args.find((a) => !a.startsWith('--'));
   const remote = spawnSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' });
   if (remote.status !== 0) die(4, "no 'origin' remote found in this repo");
   if (!remote.stdout.includes('github.com')) die(4, `origin remote (${remote.stdout.trim()}) is not a GitHub remote`);
@@ -156,7 +172,7 @@ function main() {
   }
 
   const view = given ? ['pr', 'view', given] : ['pr', 'view'];
-  const meta = JSON.parse(gh([...view, '--json', 'number'], 2));
+  const meta = JSON.parse(gh([...view, '--json', 'number,author'], 2));
   const repo = gh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']).trim();
   const [owner, name] = repo.split('/');
   const viewer = gh(['api', 'user', '-q', '.login']).trim();
@@ -178,11 +194,18 @@ function main() {
   const issueComments = JSON.parse(gh(['api', `repos/${repo}/issues/${meta.number}/comments`, '--paginate',
     '--slurp'])).flat();
 
+  const prAuthor = meta.author.login;
+  let mode;
+  try {
+    mode = chooseMode({ prAuthor, viewer, flags });
+  } catch (e) {
+    die(1, e.message);
+  }
   const { toTriage, skipped } = filter(normalize(merged, issueComments));
   const pr = merged.data.repository.pullRequest;
-  process.stdout.write(`${JSON.stringify({ repo, pr: pr.number, url: pr.url, viewer, toTriage, skipped }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ repo, pr: pr.number, url: pr.url, viewer, prAuthor, mode, toTriage, skipped }, null, 2)}\n`);
 }
 
 if (require.main === module) main();
 
-module.exports = { MARKER, issueMarker, normalize, filter };
+module.exports = { MARKER, issueMarker, normalize, filter, chooseMode };

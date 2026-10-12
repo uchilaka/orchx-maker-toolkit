@@ -54,6 +54,16 @@ The register differs only because the *reader* differs — see Replies below.
 question. Resolving a thread you are still waiting on closes a conversation someone else
 was having.
 
+### Route-only mode
+
+`threads.cjs` reports a `mode`. It is `fix` on a PR you opened and `route-only` on anyone
+else's, since pushing to a teammate's branch is their call. Pass `--route-only` to force it
+on your own PR, or `--fix` to opt in on someone else's.
+
+In route-only mode, verify and classify exactly as above, but never edit, commit or push.
+A VALID finding becomes a ticket instead of a fix, filed and replied to like an
+OUT-OF-SCOPE one, and its thread stays open for the PR's author to close.
+
 ## Stop and hand back when
 
 Any one of these, even mid-run. Report what is done, what is pending, and why you stopped.

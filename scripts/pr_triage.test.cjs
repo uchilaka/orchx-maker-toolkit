@@ -9,7 +9,7 @@ const path = require('path');
 
 const SKILL = path.join(__dirname, '..', '.claude', 'skills', 'pr-triage');
 const FIXTURES = path.join(__dirname, 'fixtures', 'pr-triage');
-const { MARKER, issueMarker, normalize, filter } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
+const { MARKER, issueMarker, normalize, filter, chooseMode } = require(path.join(SKILL, 'scripts', 'threads.cjs'));
 const { validate } = require(path.join(SKILL, 'scripts', 'post-reply.cjs'));
 
 const graphql = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'review-threads.json'), 'utf8'));
@@ -98,6 +98,25 @@ test('filter leaves exactly the four threads that need triage', () => {
   assert.strictEqual(toTriage.length + skipped.length, threads.length);
 });
 
+// --- S3: route-only mode on someone else's PR ----------------------------------
+
+test('chooseMode fixes on my own PR by default', () => {
+  assert.strictEqual(chooseMode({ prAuthor: 'uchilaka', viewer: 'uchilaka' }), 'fix');
+});
+
+test("chooseMode routes only on a teammate's PR by default", () => {
+  assert.strictEqual(chooseMode({ prAuthor: 'teammate', viewer: 'uchilaka' }), 'route-only');
+});
+
+test('chooseMode: --route-only wins on my own PR, --fix opts in on a teammate PR', () => {
+  assert.strictEqual(chooseMode({ prAuthor: 'uchilaka', viewer: 'uchilaka', flags: ['--route-only'] }), 'route-only');
+  assert.strictEqual(chooseMode({ prAuthor: 'teammate', viewer: 'uchilaka', flags: ['--fix'] }), 'fix');
+});
+
+test('chooseMode refuses --fix and --route-only together', () => {
+  assert.throws(() => chooseMode({ prAuthor: 'uchilaka', viewer: 'uchilaka', flags: ['--fix', '--route-only'] }), /both/);
+});
+
 // --- Replies: the marker, and the S11 shape of a top-level reply ---------------
 
 const footer = `\n\n${MARKER}\n\n—\nPosted by Claude on behalf of @uchilaka.`;
@@ -154,6 +173,10 @@ function lintSkill(text) {
   if (!/reviewer can open|can't open|cannot open/i.test(deferrals)) {
     errors.push('the "Deferrals" section does not say a plan reply must cite something the reviewer can open (S2)');
   }
+  // S3: route-only mode never edits code; a VALID finding becomes a ticket.
+  if (!/route-only/.test(text) || !/route-only[\s\S]{0,400}VALID[^.]*ticket/i.test(text)) {
+    errors.push('SKILL.md does not describe route-only mode turning VALID findings into tickets (S3)');
+  }
   return errors;
 }
 
@@ -172,6 +195,10 @@ test('lintSkill catches /pr-comment-triage\'s viewer filter (proves the lint can
 test('lintSkill catches a "Never" section without the S11 exception', () => {
   const text = `${MARKER}\n\n## Never\n\n- Post a review, or a top-level PR comment.\n`;
   assert.ok(lintSkill(text).some((e) => /S11/.test(e)));
+});
+
+test('lintSkill catches a SKILL.md without route-only mode', () => {
+  assert.ok(lintSkill('## Deferrals\n\nNothing.\n').some((e) => /S3/.test(e)));
 });
 
 test('pr-triage SKILL.md passes the lint', () => {
