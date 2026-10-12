@@ -20,7 +20,7 @@ export function ownerFromEnv(env = process.env) {
 
 // Write to a temp file and rename, so a reader never sees half an entry.
 export function writeEntry(entry) {
-  mkdirSync(stateDir(), { recursive: true });
+  mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
   const file = entryFile(entry.port);
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(entry, null, 2) + "\n");
@@ -37,6 +37,7 @@ export function readEntry(port) {
 
 // Remove the entry for <port> only if it still names <pid>: a server that
 // exits late must not delete the entry of a newer server on the same port.
+// An unreadable entry names no pid, so pid undefined removes one of those.
 export function removeEntry(port, pid) {
   if (readEntry(port)?.pid !== pid) return;
   try {

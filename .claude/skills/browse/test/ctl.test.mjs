@@ -4,7 +4,7 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, chmodSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, chmodSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,14 +13,29 @@ import { SKILL_DIR, fixtureTree, startServer, rawGet } from "./helpers.mjs";
 const CTL = join(SKILL_DIR, "browse-ctl.mjs");
 const SPAN = 6;
 
-const listen = (port) => new Promise((resolve, reject) => {
-  const s = createServer().once("error", reject).listen(port, "127.0.0.1", () => resolve(s));
+const listen = (port, host = "127.0.0.1") => new Promise((resolve, reject) => {
+  const s = createServer().once("error", reject).listen(port, host, () => resolve(s));
 });
+
+// A stand-in browse server: answers /__health like serve-md.mjs, under a script
+// name of our choosing, and can be told to ignore SIGTERM.
+function stub(dir, name, port, path, { ignoreTerm = false, args = [] } = {}) {
+  const script = join(dir, name);
+  writeFileSync(script, `
+    ${ignoreTerm ? 'process.on("SIGTERM", () => {});' : ""}
+    import { createServer } from "node:http";
+    createServer((req, res) => res.end(JSON.stringify({ path: ${JSON.stringify(path)}, pid: process.pid })))
+      .listen(${port}, "127.0.0.1", () => console.log("up"));
+  `);
+  const child = spawn(process.execPath, [script, ...args], { stdio: ["ignore", "pipe", "ignore"] });
+  return new Promise((resolve) => child.stdout.once("data", () => resolve(child)));
+}
 
 // A run of SPAN free ports, so the scan has room and nothing else is in it.
 async function freeRange() {
   for (let tries = 0; tries < 50; tries++) {
-    const base = 41000 + Math.floor(Math.random() * 18000);
+    // Below 49152, where macOS starts handing out ephemeral ports.
+    const base = 41000 + Math.floor(Math.random() * 8000);
     const held = [];
     try {
       for (let p = base; p < base + SPAN; p++) held.push(await listen(p));
@@ -40,10 +55,20 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
 
   const ctl = (args, extra = {}) =>
     spawnSync(process.execPath, [CTL, ...args], { env: { ...env, ...extra }, encoding: "utf8" });
+  const ctlAsync = (args, extra = {}) => new Promise((resolve) => {
+    const c = spawn(process.execPath, [CTL, ...args], { env: { ...env, ...extra } });
+    let stdout = "", stderr = "";
+    c.stdout.on("data", (d) => (stdout += d));
+    c.stderr.on("data", (d) => (stderr += d));
+    c.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
   const entries = () => readdirSync(state).filter((f) => f.endsWith(".json"))
     .map((f) => JSON.parse(readFileSync(join(state, f), "utf8")));
   const entryAt = (port) => entries().find((e) => e.port === port);
-  const health = async (port) => (await rawGet(`http://127.0.0.1:${port}`, "/__health").catch(() => ({}))).body;
+  const health = async (port) => {
+    const r = await rawGet(`http://127.0.0.1:${port}`, "/__health").catch(() => null);
+    return r && JSON.parse(r.body).path;
+  };
   const openCalls = () => (existsSync(opened) ? readFileSync(opened, "utf8").trim().split("\n").filter(Boolean) : []);
 
   beforeEach(async () => {
@@ -62,14 +87,14 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
     env = {
       ...process.env, PATH: `${bin}:${process.env.PATH}`, BROWSE_HOSTS_FILE: hosts,
       BROWSE_STATE_DIR: state, BROWSE_PORT_MIN: String(base), BROWSE_PORT_MAX: String(base + SPAN - 1),
-      BROWSE_OWNER: "", CLAUDE_CODE_SESSION_ID: "sess-a",
+      BROWSE_OWNER: "", BROWSE_HOST: "", CLAUDE_CODE_SESSION_ID: "sess-a",
     };
     spawned = [];
   });
 
   afterEach(() => {
-    for (const e of entries()) if (alive(e.pid)) process.kill(e.pid);
-    for (const c of spawned) c.kill();
+    for (const e of entries()) if (alive(e.pid)) process.kill(e.pid, "SIGKILL");
+    for (const c of spawned) c.kill("SIGKILL");
   });
 
   describe("ensure", () => {
@@ -126,6 +151,68 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       } finally {
         foreign.close();
       }
+    });
+
+    for (const host of ["::", "::1", "0.0.0.0"]) {
+      test(`skips a port another app holds on ${host}, which a 127.0.0.1 bind alone misses`, async () => {
+        const foreign = await listen(base, host);
+        try {
+          const r = ctl(["ensure", tree.plans]);
+          assert.equal(r.stdout.trim(), `http://localhost:${base + 1} (started)`);
+          assert.ok(foreign.listening);
+        } finally {
+          foreign.close();
+        }
+      });
+    }
+
+    test("an explicit --port another app holds on :: is refused", async () => {
+      const foreign = await listen(base + 2, "::");
+      try {
+        const r = ctl(["ensure", tree.plans, "--port", String(base + 2)]);
+        assert.equal(r.status, 1);
+        assert.match(r.stderr, new RegExp(`port ${base + 2} is in use`));
+      } finally {
+        foreign.close();
+      }
+    });
+
+    test("parallel runs for one path start one server", async () => {
+      const runs = await Promise.all([1, 2, 3].map(() => ctlAsync(["ensure", tree.plans, "--shared"])));
+      assert.ok(runs.every((r) => r.status === 0), runs.map((r) => r.stderr).join(""));
+      assert.equal(entries().length, 1);
+      assert.equal(runs.filter((r) => r.stdout.includes("(started)")).length, 1);
+    });
+
+    test("a lock left by a dead run doesn't block", () => {
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      writeFileSync(join(state, ".lock"), String(dead));
+      const r = ctl(["ensure", tree.plans]);
+      assert.equal(r.stdout.trim(), `http://localhost:${base} (started)`);
+      assert.ok(!existsSync(join(state, ".lock")), "lock released");
+    });
+
+    test("creates the state dir private to the user", () => {
+      const fresh = join(state, "nested", "browse");
+      ctl(["ensure", tree.plans], { BROWSE_STATE_DIR: fresh });
+      assert.equal(statSync(fresh).mode & 0o777, 0o700);
+      for (const f of readdirSync(fresh).filter((f) => f.endsWith(".json"))) {
+        process.kill(JSON.parse(readFileSync(join(fresh, f), "utf8")).pid, "SIGKILL");
+      }
+    });
+
+    test("a file name with ' ( ) is fully escaped in the URL, and the link works", async () => {
+      writeFileSync(join(tree.root, "other", "it's (draft).md"), "# Draft\n");
+      const r = ctl(["ensure", join(tree.root, "other", "it's (draft).md")]);
+      assert.equal(r.stdout.trim(), `http://localhost:${base}/it%27s%20%28draft%29.md (started)`);
+      assert.equal((await rawGet(`http://127.0.0.1:${base}`, "/it%27s%20%28draft%29.md")).status, 200);
+    });
+
+    test("the URL comes from the port, never from the entry's url field", () => {
+      ctl(["ensure", tree.plans]);
+      const file = join(state, `${base}.json`);
+      writeFileSync(file, JSON.stringify({ ...entryAt(base), url: "https://phish.example" }));
+      assert.equal(ctl(["ensure", tree.plans]).stdout.trim(), `http://localhost:${base} (already running)`);
     });
 
     test("an explicit --port held by something else is refused", async () => {
@@ -186,6 +273,23 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       }
     });
 
+    test("--shared never reuses a session's server, so that session's stop leaves it", async () => {
+      ctl(["ensure", tree.plans]);
+      const r = ctl(["ensure", tree.plans, "--shared"], { CLAUDE_CODE_SESSION_ID: "sess-b" });
+      assert.equal(r.stdout.trim(), `http://localhost:${base + 1} (started)`);
+      ctl(["stop", "--mine"]);
+      assert.equal(await health(base + 1), tree.plans, "the shared server was stopped");
+    });
+
+    test("another session's server isn't reused either; a shared one is", async () => {
+      ctl(["ensure", tree.plans]);
+      assert.equal(ctl(["ensure", tree.plans], { CLAUDE_CODE_SESSION_ID: "sess-b" }).stdout.trim(),
+        `http://localhost:${base + 1} (started)`);
+      ctl(["ensure", join(tree.root, "other")], { CLAUDE_CODE_SESSION_ID: "" });
+      assert.equal(ctl(["ensure", join(tree.root, "other")], { CLAUDE_CODE_SESSION_ID: "sess-b" }).stdout.trim(),
+        `http://localhost:${base + 2} (already running)`);
+    });
+
     test("a missing path is a usage error", () => {
       const r = ctl(["ensure", join(tree.root, "nope")]);
       assert.equal(r.status, 2);
@@ -228,6 +332,60 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       assert.ok(alive(other.pid), "a non-browse process was signalled");
     });
 
+    test("a browse server on the port whose pid isn't the entry's", async () => {
+      const a = await startServer(tree.plans);
+      const b = await startServer(tree.plans);
+      spawned.push(a.child, b.child);
+      const port = Number(a.url.split(":").pop());
+      fake(port, { pid: b.child.pid, path: tree.plans });
+      assert.equal(ctl(["list"]).stdout.trim(), "no browse servers running");
+      assert.equal(ctl(["stop", "--all"]).status, 0);
+      assert.ok(alive(b.child.pid), "the other browse server was signalled");
+    });
+
+    test("a process that merely mentions serve-md.mjs in its arguments", async () => {
+      const other = await stub(tree.root, "stub.mjs", base, tree.plans, { args: ["vim-serve-md.mjs"] });
+      spawned.push(other);
+      fake(base, { pid: other.pid, path: tree.plans });
+      assert.equal(ctl(["list"]).stdout.trim(), "no browse servers running");
+      assert.ok(alive(other.pid), "a non-browse process was signalled");
+    });
+
+    test("a browse server pid with nothing listening on the entry's port", async () => {
+      const srv = await startServer(tree.plans);
+      spawned.push(srv.child);
+      fake(base, { pid: srv.child.pid, path: tree.plans });
+      assert.equal(ctl(["list"]).stdout.trim(), "no browse servers running");
+      assert.ok(!existsSync(join(state, `${base}.json`)), "entry kept although its port refused");
+    });
+
+    test("a server too busy to answer keeps its entry, and is reused once it answers", async () => {
+      ctl(["ensure", tree.plans]);
+      const { pid } = entryAt(base);
+      process.kill(pid, "SIGSTOP");
+      try {
+        ctl(["list"]);
+        assert.ok(existsSync(join(state, `${base}.json`)), "entry pruned while the server was only paused");
+      } finally {
+        process.kill(pid, "SIGCONT");
+      }
+      assert.equal(ctl(["ensure", tree.plans]).stdout.trim(), `http://localhost:${base} (already running)`);
+    });
+
+    test("unreadable or mismatched entries are pruned; other files are left alone", async () => {
+      ctl(["ensure", tree.plans]);
+      const real = entryAt(base);
+      writeFileSync(join(state, `${base + 1}.json`), "{not json");
+      writeFileSync(join(state, `${base + 2}.json`), JSON.stringify(real));
+      writeFileSync(join(state, "junk.json"), "{}");
+      writeFileSync(join(state, `${base}.json.123.tmp`), "{}");
+      const out = ctl(["list"]).stdout.trim().split("\n");
+      assert.equal(out.length, 1);
+      assert.match(out[0], new RegExp(`^${base}\\s`));
+      assert.deepEqual(readdirSync(state).filter((f) => f.includes("json")).sort(),
+        [`${base}.json`, `${base}.json.123.tmp`, "junk.json"].sort());
+    });
+
     test("a browse server whose health doesn't match the entry's path", async () => {
       const srv = await startServer(join(tree.root, "other"));
       spawned.push(srv.child);
@@ -242,7 +400,7 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
     async function three() {
       ctl(["ensure", tree.plans], { CLAUDE_CODE_SESSION_ID: "sess-a" });
       ctl(["ensure", join(tree.root, "other")], { CLAUDE_CODE_SESSION_ID: "sess-b" });
-      ctl(["ensure", join(tree.plans, "global", "..", "..", "plans-evil")], { CLAUDE_CODE_SESSION_ID: "" });
+      ctl(["ensure", join(tree.root, "plans-evil")], { CLAUDE_CODE_SESSION_ID: "" });
       const all = entries().sort((a, b) => a.port - b.port);
       assert.equal(all.length, 3, "precondition: three servers registered");
       return all;
@@ -291,6 +449,29 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       ctl(["stop", "--all"]);
       assert.ok(all.every((e) => !alive(e.pid)));
       assert.equal(entries().length, 0);
+    });
+
+    test("stop reports a server that ignores SIGTERM, and keeps its entry", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "browse-stub-"));
+      const stubborn = await stub(dir, "serve-md.mjs", base, tree.plans, { ignoreTerm: true });
+      spawned.push(stubborn);
+      writeFileSync(join(state, `${base}.json`), JSON.stringify({
+        pid: stubborn.pid, port: base, path: tree.plans, owner: "shared", started: new Date().toISOString(),
+      }));
+      const r = ctl(["stop", "--port", String(base)]);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, new RegExp(`${base} \\(pid ${stubborn.pid}\\) did not exit`));
+      assert.doesNotMatch(r.stdout, /stopped/);
+      assert.ok(existsSync(join(state, `${base}.json`)), "entry of a running server deleted");
+    });
+
+    test("stop --mine honours BROWSE_OWNER, as ensure does", async () => {
+      ctl(["ensure", tree.plans], { BROWSE_OWNER: "agent-x" });
+      const { pid } = entryAt(base);
+      assert.match(ctl(["list"], { BROWSE_OWNER: "agent-x" }).stdout, /agent-x \(this session\)/);
+      assert.equal(ctl(["stop", "--mine"]).stdout.trim(), "nothing to stop");
+      ctl(["stop", "--mine"], { BROWSE_OWNER: "agent-x" });
+      assert.ok(!alive(pid));
     });
 
     test("stop with no selector is a usage error", () => {

@@ -16,7 +16,10 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
 
   const run = (args, extraEnv = {}) =>
     spawnSync("sh", [ensure, ...args], { env: { ...env, ...extraEnv }, encoding: "utf8" });
-  const health = async (p = port) => (await rawGet(`http://127.0.0.1:${p}`, "/__health").catch(() => ({}))).body;
+  const health = async (p = port) => {
+    const r = await rawGet(`http://127.0.0.1:${p}`, "/__health").catch(() => null);
+    return r && JSON.parse(r.body).path;
+  };
   const serverPids = () => {
     try { return execSync(`pgrep -f ${JSON.stringify(server)}`, { encoding: "utf8" }).trim().split("\n").filter(Boolean); }
     catch { return []; }
@@ -44,9 +47,12 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
     hosts = join(tree.root, "hosts");
     writeFileSync(hosts, "127.0.0.1\tlocalhost\n127.0.0.1 plans.localhost   # /browse preview server\n");
     port = String(await freePort());
+    // Cleared, so a value set in the shell running the tests can't change the outcome.
+    const ambient = ["BROWSE_STATE_DIR", "BROWSE_OWNER", "BROWSE_HOST", "CLAUDE_CODE_SESSION_ID"];
     // Keep the port scan off the real 3200 range; ports already held are skipped.
     env = {
-      ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, BROWSE_HOSTS_FILE: hosts,
+      ...process.env, ...Object.fromEntries(ambient.map((k) => [k, ""])),
+      HOME: home, PATH: `${bin}:${process.env.PATH}`, BROWSE_HOSTS_FILE: hosts,
       BROWSE_PORT_MIN: port, BROWSE_PORT_MAX: String(Number(port) + 5),
     };
   });

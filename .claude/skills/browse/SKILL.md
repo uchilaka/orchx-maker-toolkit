@@ -64,15 +64,12 @@ node ~/.claude/skills/browse/browse-ctl.mjs ensure <path> --open
 ```
 
 `<path>` can be a folder or a single `.md` file. The command:
-- reuses a live server whose folder is `<path>` or contains it, and prints a deep link into it, so open tabs keep their live reload
-- otherwise starts one on the first free port from 3200 to 3220, owned by this Claude session (`CLAUDE_CODE_SESSION_ID`). A file gets its folder served, with the link pointing at the file
-- leaves every other browse server running: parallel sessions each keep their own
-- skips a port held by anything else, and never kills it
-- opens the browser only if it started a new server. When it prints `(already running)` and the user wants to see it, run `open <url>`
+- reuses a live server whose folder is `<path>` or contains it, if it's shared or this session's, and prints a deep link into it
+- otherwise starts one, owned by this Claude session. A file gets its folder served, with the link pointing at the file
+- leaves every other browse server running
+- opens the browser only if it started a new server. When it prints `(already running)` and the user wants to see it, run `open '<url>'`
 
 It prints the URL, followed by `(started)` or `(already running)`. The host is `plans.localhost` once `/etc/hosts` maps it (see **Vanity URL**), and `localhost` until then.
-
-Each live server has a registry entry, `~/.claude/state/browse/<port>.json`, with its pid, path, URL, owner and start time. `browse-ctl.mjs list` shows them. Stale entries (dead or reused pid, or a server no longer serving that path) are pruned on every run.
 
 ### Step 3: Stand by
 
@@ -90,14 +87,17 @@ node ~/.claude/skills/browse/browse-ctl.mjs stop --mine
 
 This stops only servers this session started. Other sessions' servers and the shared `~/project-plans` autostart keep running. To stop one specifically, use `stop --port <port>`; `stop --all` stops every registered server. Confirm what was stopped from its output.
 
+Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact`. If it says `nothing to stop` but you started a server earlier in this conversation (the id may change on `/clear`), run `list` and stop that one with `--port`. A server that ignores SIGTERM is reported as `did not exit`, keeps its entry, and exits 1.
+
 ## Notes
 
 - Styling is Tailwind utility classes only — no inline CSS. Components (badge, code block, table, checkbox) are small functions near the top of `serve-md.mjs`.
 - Live reload works via Server-Sent Events — no browser extensions needed.
 - Directory mode shows a card-based index of all `.md` files with click-through to rendered previews.
 - If `node` is not available, fall back to `yarn dlx serve` for raw file serving.
-- Ports come from 3200–3220, first free wins (`BROWSE_PORT_MIN`/`BROWSE_PORT_MAX` override the range); servers bind to 127.0.0.1 only. Each server logs to `~/.claude/state/browse/<port>.log`.
-- `GET /__health` returns the path being served, as plain text. `browse-ctl.mjs` relies on it to verify a registry entry before trusting or signalling it.
+- Ports come from 3200–3220, first free wins (`BROWSE_PORT_MIN`/`BROWSE_PORT_MAX` override the range). A port anything answers on, over 127.0.0.1 or ::1, is skipped and never killed. Servers bind to 127.0.0.1 only. Each server logs to `~/.claude/state/browse/<port>.log`.
+- **Registry:** each live server has an entry, `~/.claude/state/browse/<port>.json` (directory mode 0700), with its pid, port, path, owner and start time. `browse-ctl.mjs list` shows them. An entry is pruned when its pid is gone or isn't a browse server, or its port answers as something else. One that is merely slow to answer is kept. `ensure` holds `~/.claude/state/browse/.lock` while it runs, so parallel sessions don't start duplicates.
+- `GET /__health` returns `{"path", "pid"}` as JSON. `browse-ctl.mjs` checks both against an entry before trusting or signalling it.
 
 ## Autostart
 
@@ -107,7 +107,7 @@ A `SessionStart` hook (matcher `startup`) in `~/.claude/settings.json` runs:
 ensure-server.sh ~/project-plans --open >/dev/null 2>&1
 ```
 
-Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. `ensure-server.sh` is a thin wrapper over `browse-ctl.mjs ensure --shared`, kept so this hook didn't have to change. Its servers are owned by `shared`, so no session's `stop --mine` takes them down, and browsing something else no longer replaces them.
+Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. `ensure-server.sh` wraps `browse-ctl.mjs ensure --shared`. Its servers are owned by `shared`, so `stop --mine` never stops them.
 
 ## Vanity URL
 
@@ -139,7 +139,7 @@ Built-in `node:test`, so there's still nothing to install. Pass the glob, not th
 | `render.test.mjs` | Markdown renderer, page shell, theme script (every OS-setting × saved-choice combination, run in a stub DOM) |
 | `server.test.mjs` | `/__health`, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
 | `registry.test.mjs` | The server writes its registry entry on listen and removes it on exit, never removing a newer server's |
-| `ctl.test.mjs` | `ensure` reuse, deep links, port scan, foreign-port skip and refusal, vanity-host lookup; stale-entry pruning; `list`; `stop --mine/--port/--all` |
+| `ctl.test.mjs` | `ensure` reuse by owner, deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit |
 | `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the `SessionStart` hook |
 | `tailwind.test.mjs` | Compiles every class with a real Tailwind 3.4. The Play CDN skips a class it can't build without any error, so this is the only check that would catch one. Skipped unless `TAILWIND_DIR` (default: `cami-ritv`) has `tailwindcss` installed |
 

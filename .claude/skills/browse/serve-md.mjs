@@ -597,11 +597,11 @@ export async function main(args = process.argv.slice(2)) {
       return;
     }
 
-    // What this server is serving — ensure-server.sh uses it to decide whether an
-    // existing server can be kept or must be replaced.
+    // What this server is serving, and its pid. browse-ctl.mjs checks both
+    // against a registry entry, which ties the entry's pid to this port.
     if (pathname === "/__health") {
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end(targetPath);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ path: targetPath, pid: process.pid }));
       return;
     }
 
@@ -661,6 +661,9 @@ export async function main(args = process.argv.slice(2)) {
     });
     const unregister = () => removeEntry(addr.port, process.pid);
     process.on("exit", unregister);
+    // A signal's default action ends the process without running "exit"
+    // listeners, so route the usual stop signals through process.exit to make
+    // sure the entry is removed.
     for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => process.exit(0));
     console.log(`Serving: ${targetPath}`);
     console.log(`URL: ${url}`);

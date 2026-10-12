@@ -17,10 +17,10 @@ describe("server, directory mode", { timeout: 30_000 }, () => {
     assert.match(srv.url, /^http:\/\/plans\.localhost:\d+$/);
   });
 
-  test("/__health returns the served path", async () => {
+  test("/__health returns the served path and the server's pid", async () => {
     const r = await rawGet(srv.base, "/__health");
     assert.equal(r.status, 200);
-    assert.equal(r.body, tree.plans);
+    assert.deepEqual(JSON.parse(r.body), { path: tree.plans, pid: srv.child.pid });
   });
 
   test("index: a card per file with its title and status, grouped by folder", async () => {
