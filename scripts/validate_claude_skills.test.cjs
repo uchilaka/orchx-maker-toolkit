@@ -4,6 +4,9 @@ const path = require('path');
 // on its own; this validator borrows it rather than keeping a second copy.
 const { parseFrontmatter } = require('../.gemini/skills/publish-prep/scripts/lib/frontmatter.cjs');
 
+// TODO(LAR-394): also assert the .gitignore skill allowlist matches
+// marketplace.json plugins[0].skills, and that shipped skills never reference
+// ~/.claude/skills/<name>/ (absent under a plugin install).
 const SKILLS_DIR = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.join(__dirname, '..', '.claude', 'skills');

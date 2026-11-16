@@ -1,0 +1,7 @@
+// Markdown under .github/ is rendered by GitHub, where every newline in a PR
+// description becomes a visible line break. Lines must stay unwrapped, so the
+// root config's 120-column limit (MD013) is switched off here.
+{
+  "extends": "../.markdownlint.json",
+  "MD013": false
+}

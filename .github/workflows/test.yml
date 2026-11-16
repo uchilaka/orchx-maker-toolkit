@@ -1,0 +1,57 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to a PR supersedes its run. On main every commit keeps its run,
+# so a break can be traced to the merge that caused it.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # A fresh checkout is untrusted to mise, which would otherwise refuse to read
+  # mise.toml.
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+# TODO(LAR-413): pin actions by commit SHA, and pin mise and gemini-cli.
+jobs:
+  claude:
+    name: Claude skills and plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # mise's postinstall hook skips the Gemini extension when CI is set.
+      - uses: jdx/mise-action@v2
+      # Pinned: validate_plugin.cjs tolerates one known warning by its exact
+      # wording, so a CLI upgrade should be a deliberate change here, not a
+      # surprise red build.
+      # Install scripts stay on: the package fetches its native binary in one.
+      - name: Install Claude Code CLI (pinned)
+        run: npm install -g @anthropic-ai/claude-code@2.1.296
+      - run: mise run test:claude
+      # TODO(LAR-412): validate_plugin.cjs passes when marketplace.json is
+      # missing; harden it on #16, whose copy is byte-identical.
+      - run: mise run build:claude
+
+  gemini:
+    name: Gemini skills
+    # validate_skills.test.cjs finds the skill validator through
+    # `brew --prefix gemini-cli`, and macOS runners ship with Homebrew on PATH.
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: brew install gemini-cli
+      - uses: jdx/mise-action@v2
+      - run: mise run test

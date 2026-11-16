@@ -21,6 +21,7 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 
 | Skill | Description | Documentation |
 | :--- | :--- | :--- |
+| `browse` | Claude Code: renders plans, reviews and other markdown artifacts in the browser with live reload. | [SKILL.md](./.claude/skills/browse/SKILL.md) |
 | `finish-worktree` | Exits Git worktrees, prepares draft PRs, and applies templates. | [Docs](./docs/finish-worktree.md) |
 | `import-profile` | Syncs global preferences and memory from external profiles. | [Docs](./docs/import-profile.md) |
 | `llm-wikify` | Claude Code: scaffolds a Karpathy-style LLM-maintained wiki (sources, wiki, schema) in any repo. | [Docs](./docs/llm-wikify.md) |
@@ -78,7 +79,7 @@ gemini skills link ./.gemini/skills
 
 ### Installing the Claude Code plugin
 
-The repo's Claude-native skills (currently `patch-my-hosts`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
+The repo's Claude-native skills (currently `patch-my-hosts`, `llm-wikify` and `browser-test-assist`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
 ```bash
 claude plugin marketplace add uchilaka/orchx-maker-toolkit
 claude plugin install orchx-maker@orchx-maker-toolkit
@@ -112,6 +113,7 @@ If you want to modify a skill or add a new one:
 5.  The updated `.skill` files will be available in the `dist/` folder.
 
 To publish a new Claude-native skill, add it in three places: its directory under `.claude/skills/`, a `!` allowlist line in `.gitignore`, and its path in the `skills` array of `.claude-plugin/marketplace.json`. That array is an explicit allowlist, so a skill that isn't in it doesn't ship. Then validate:
+<!-- TODO(LAR-397): build:claude fails --strict on the CLAUDE.md-at-plugin-root warning; the add-a-skill steps are also duplicated across CLAUDE.md and CONTRIBUTING.md. -->
 ```bash
 mise run build:claude
 ```
@@ -127,7 +129,7 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
-The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `browser-test-assist`)
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`)
 can be installed for use from any project, as symlinks back to this checkout:
 
 ```sh

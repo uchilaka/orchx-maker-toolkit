@@ -23,6 +23,7 @@ coverage/
 !.claude/skills/patch-my-hosts
 !.claude/skills/browser-test-assist
 !.claude/skills/llm-wikify
+!.claude/skills/browse
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is
