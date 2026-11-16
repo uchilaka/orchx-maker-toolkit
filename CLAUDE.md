@@ -72,6 +72,13 @@ single source file, and an edit here takes effect everywhere:
   `~/.claude/skill-backups/<name>-<timestamp>` first; one that differs is refused.
 - `mise run uninstall:claude-global [name...]` — removes only symlinks that resolve into
   this checkout; anything else is reported and left alone.
+- Optional hooks: a skill can ship `install/hooks.json` (a description, folders to create,
+  and `settings.json`-shaped hooks with `{{SKILL_DIR}}` for the installed path; `browse`
+  has one). Install asks before adding them to `~/.claude/settings.json`, or takes
+  `--with-hooks`/`--no-hooks` (`mise run install:claude-global -- --with-hooks browse`);
+  with no terminal and no flag it skips them. Uninstall removes exactly those commands.
+  `scripts/claude_skill_hooks.cjs` does the editing: it backs `settings.json` up to
+  `~/.claude/skill-backups/` first and leaves invalid JSON untouched.
 
 Links always target the **main checkout**, resolved via `git rev-parse --git-common-dir`
 even when run from a worktree, because a link into a worktree dangles once it's pruned. So

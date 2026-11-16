@@ -1,0 +1,17 @@
+{
+  "description": "Start the ~/project-plans preview server when a Claude Code session starts, and open it in the browser",
+  "mkdir": ["~/project-plans", "~/pr-reviews"],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{SKILL_DIR}}/ensure-server.sh ~/project-plans --open >/dev/null 2>&1"
+          }
+        ]
+      }
+    ]
+  }
+}
