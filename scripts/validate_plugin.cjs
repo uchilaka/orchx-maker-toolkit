@@ -72,6 +72,12 @@ function main() {
     const listed = (report && report.errors || []).map(e => `error   ${e.path || ''}: ${e.message || e}`);
     fail([...listed, 'report has no manifest section, so it can\'t be checked; treating as a failure']);
   }
+  // Without marketplace.json the validator falls back to plugin.json and still
+  // succeeds, but then the marketplace (and the skills it publishes) went
+  // unchecked.
+  if (path.basename(report.manifest.file || '') !== 'marketplace.json') {
+    fail(`validated ${report.manifest.file || 'an unnamed manifest'}, not .claude-plugin/marketplace.json; is the marketplace missing?`);
+  }
 
   const root = marketplaceRoot(report);
   const failures = [];

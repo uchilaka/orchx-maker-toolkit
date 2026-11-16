@@ -1,0 +1,6 @@
+# Pinned gitleaks config for publish-prep: the default rules, no allowlist.
+# publish_prep.cjs passes it with --config, so an item can't weaken its own scan
+# by shipping a .gitleaks.toml. Deliberate exceptions go through publish-prep
+# allow comments instead, which require a reason.
+[extend]
+useDefault = true

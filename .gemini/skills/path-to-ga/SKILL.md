@@ -1,6 +1,6 @@
 ---
 name: path-to-ga
-description: Analyzes project skills, global skills, and GEMINI.md to optimize the toolkit for general availability (GA) and public distribution.
+description: Analyzes project skills, global skills, and GEMINI.md to optimize the toolkit for general availability (GA) and public distribution. Use when the user says "/path-to-ga", asks what's blocking general availability, or wants to prepare the toolkit for a public release.
 ---
 
 # 🚀 Path to GA

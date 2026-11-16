@@ -1,6 +1,6 @@
 ---
 name: summon-profile
-description: Synchronizes the local Gemini profile (~/.gemini) with a remote machine via scp.
+description: Synchronizes the local Gemini profile (~/.gemini) with a remote machine via scp. Use when the user says "/summon-profile", "summon my profile", or wants to pull ~/.gemini from another machine.
 ---
 
 # 🪄 Summon Profile Skill

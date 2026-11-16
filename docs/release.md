@@ -6,7 +6,7 @@ The `/release` skill automates the complex and error-prone process of cutting a 
 
 1.  **Specialist Review:** Conducts a mandatory full review across all 7 technical domains (Code, Security, Architecture, etc.) to identify risks or technical debt before any changes are committed.
 2.  **User Interview:** Pauses the process to present review findings. The user must decide whether to fix issues, proceed as-is, or adjust the release version.
-3.  **Safety First:** Runs existing tests and validations to ensure the repository is in a releasable state.
+3.  **Safety First:** Runs existing tests and validations to ensure the repository is in a releasable state. Then runs `mise run publish-prep`, and stops the release on any `high` finding (a secret, a machine-specific path, broken frontmatter) until `/publish-prep` fixes it.
 4.  **Summary:** Summarizes unreleased changes from the git history.
 5.  **Coordination:** Prompts the user for the new version number and release notes, informed by the specialist review findings.
 6.  **Automation:**

@@ -1,5 +1,6 @@
 #!/bin/bash
 # check-updates.sh - Ported from personal to GA toolkit
+# Requires: md5 (macOS) or md5sum (Linux)
 set -e
 
 BASELINE_DIR="${GEMINI_DIR:-$HOME/.gemini}"

@@ -51,6 +51,15 @@ test('fails on a report with no manifest, rather than counting zero problems', (
   assert.match(r.stderr, /manifest/);
 });
 
+// With marketplace.json gone, `claude plugin validate` falls back to
+// plugin.json and reports success, but the marketplace that ships was never
+// checked.
+test('fails when the report validated plugin.json instead of the marketplace', () => {
+  const r = check('no-marketplace');
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /marketplace\.json/);
+});
+
 test('tolerates CLAUDE.md only at the marketplace root, not in another plugin', () => {
   const r = check('nested-claude-md');
   assert.strictEqual(r.status, 1);
