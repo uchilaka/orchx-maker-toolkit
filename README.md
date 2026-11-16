@@ -130,8 +130,14 @@ can be installed for use from any project, as symlinks back to this checkout:
 ```sh
 mise run install:claude-global                       # all repo-local skills
 mise run install:claude-global browser-test-assist   # just one
+mise run install:claude-global -- --with-hooks browse   # and add its optional hook
 mise run uninstall:claude-global browser-test-assist
 ```
+
+A skill can ship optional hooks in `install/hooks.json` (today: `browse`'s session-start
+preview server). Install asks before adding them to `~/.claude/settings.json`;
+`--with-hooks` or `--no-hooks` answers up front, and without a terminal to ask they're
+skipped. Uninstall removes them.
 
 See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
 checkout rather than a worktree.

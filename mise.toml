@@ -37,11 +37,11 @@ description = "Remove the .claude/skills/ symlinks created by mount:claude, leav
 run = "for f in .claude/skills/*/; do name=$(basename \"$f\"); target=\".claude/skills/$name\"; if [ -L \"$target\" ]; then rm \"$target\"; echo \"unmounted $name\"; fi; done"
 
 [tasks."install:claude-global"]
-description = "Symlink this repo's Claude-native skills into ~/.claude/skills/ (all, or the names given: mise run install:claude-global browser-test-assist)"
+description = "Symlink this repo's Claude-native skills into ~/.claude/skills/ (all, or the names given: mise run install:claude-global browser-test-assist), and offer their optional hooks (--with-hooks / --no-hooks)"
 run = "bash scripts/claude-global-skill.sh install"
 
 [tasks."uninstall:claude-global"]
-description = "Remove ~/.claude/skills/ symlinks that point into this repo (all, or the names given)"
+description = "Remove ~/.claude/skills/ symlinks that point into this repo, and their optional hooks (all, or the names given)"
 run = "bash scripts/claude-global-skill.sh uninstall"
 
 [tasks."test:claude"]

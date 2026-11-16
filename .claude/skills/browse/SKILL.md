@@ -101,11 +101,13 @@ Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact`. If it
 
 ## Autostart
 
-A `SessionStart` hook (matcher `startup`) in `~/.claude/settings.json` runs:
+An optional `SessionStart` hook (matcher `startup`) in `~/.claude/settings.json` runs:
 
 ```bash
 ensure-server.sh ~/project-plans --open >/dev/null 2>&1
 ```
+
+`mise run install:claude-global browse` (in the toolkit repo) asks whether to add it, from `install/hooks.json`; pass `--with-hooks` or `--no-hooks` to answer up front. Adding it also creates `~/project-plans` and `~/pr-reviews`. `uninstall:claude-global browse` removes it.
 
 Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. `ensure-server.sh` wraps `browse-ctl.mjs ensure --shared`. Its servers are owned by `shared`, so `stop --mine` never stops them.
 
