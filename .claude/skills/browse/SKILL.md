@@ -140,7 +140,7 @@ Built-in `node:test`, so there's still nothing to install. Pass the glob, not th
 | `server.test.mjs` | `/__health`, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
 | `registry.test.mjs` | The server writes its registry entry on listen and removes it on exit, never removing a newer server's |
 | `ctl.test.mjs` | `ensure` reuse by owner, deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit |
-| `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the `SessionStart` hook |
+| `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the `SessionStart` hook (only where `browse` is installed in `~/.claude/skills/`) |
 | `tailwind.test.mjs` | Compiles every class with a real Tailwind 3.4. The Play CDN skips a class it can't build without any error, so this is the only check that would catch one. Skipped unless `TAILWIND_DIR` (default: `cami-ritv`) has `tailwindcss` installed |
 
 Every test uses its own registry (`BROWSE_STATE_DIR` or a temp `HOME`) and a port range away from 3200, and `stop` only signals servers in its own registry, so running tests never touches the real `plans.localhost` server.

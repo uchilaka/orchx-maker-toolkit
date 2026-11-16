@@ -118,15 +118,21 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
   });
 });
 
+// The hook is per-machine setup (SKILL.md → Autostart), so it's checked only
+// where browse is installed in the user's catalog. There, a missing or wrong
+// hook still fails, as does a missing settings.json.
 describe("SessionStart autostart hook", () => {
   const settings = join(homedir(), ".claude", "settings.json");
+  const installed = existsSync(join(homedir(), ".claude", "skills", "browse"));
 
-  test("runs ensure-server.sh on startup only, with --open, output discarded", { skip: !existsSync(settings) }, () => {
+  test("runs ensure-server.sh on startup only, with --open, output discarded", { skip: !installed && "browse isn't installed in ~/.claude/skills" }, () => {
+    assert.ok(existsSync(settings), `browse is installed but ${settings} doesn't exist`);
     const hooks = JSON.parse(readFileSync(settings, "utf8")).hooks?.SessionStart ?? [];
-    const entry = hooks.find((m) => m.hooks.some((h) => h.command.includes("browse/ensure-server.sh")));
+    const isBrowse = (h) => h.command?.includes("browse/ensure-server.sh");
+    const entry = hooks.find((m) => m.hooks?.some(isBrowse));
     assert.ok(entry, "hook present");
     assert.equal(entry.matcher, "startup");
-    const cmd = entry.hooks[0].command;
+    const cmd = entry.hooks.find(isBrowse).command;
     assert.match(cmd, /project-plans --open/);
     assert.match(cmd, />\/dev\/null 2>&1$/, "silent: costs no context");
     assert.ok(existsSync(cmd.split(" ")[0]), "script path exists");
