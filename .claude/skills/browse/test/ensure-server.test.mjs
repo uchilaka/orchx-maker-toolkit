@@ -118,15 +118,20 @@ describe("ensure-server.sh", { timeout: 60_000 }, () => {
   });
 });
 
+// The hook is optional per-machine setup (SKILL.md → Autostart), so this checks
+// the one in the user's settings only when there is one. A browse hook that's
+// there must be well-formed.
 describe("SessionStart autostart hook", () => {
   const settings = join(homedir(), ".claude", "settings.json");
 
-  test("runs ensure-server.sh on startup only, with --open, output discarded", { skip: !existsSync(settings) }, () => {
+  test("runs ensure-server.sh on startup only, with --open, output discarded", (t) => {
+    if (!existsSync(settings)) return t.skip(`no ${settings}`);
     const hooks = JSON.parse(readFileSync(settings, "utf8")).hooks?.SessionStart ?? [];
-    const entry = hooks.find((m) => m.hooks.some((h) => h.command.includes("browse/ensure-server.sh")));
-    assert.ok(entry, "hook present");
+    const isBrowse = (h) => h.command?.includes("browse/ensure-server.sh");
+    const entry = hooks.find((m) => m.hooks?.some(isBrowse));
+    if (!entry) return t.skip("no browse autostart hook in settings.json");
     assert.equal(entry.matcher, "startup");
-    const cmd = entry.hooks[0].command;
+    const cmd = entry.hooks.find(isBrowse).command;
     assert.match(cmd, /project-plans --open/);
     assert.match(cmd, />\/dev\/null 2>&1$/, "silent: costs no context");
     assert.ok(existsSync(cmd.split(" ")[0]), "script path exists");
