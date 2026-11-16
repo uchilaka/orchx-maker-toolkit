@@ -87,7 +87,7 @@ node ~/.claude/skills/browse/browse-ctl.mjs stop --mine
 
 This stops only servers this session started. Other sessions' servers and the shared `~/project-plans` autostart keep running. To stop one specifically, use `stop --port <port>`; `stop --all` stops every registered server. Confirm what was stopped from its output.
 
-Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact`. If it says `nothing to stop` but you started a server earlier in this conversation (the id may change on `/clear`), run `list` and stop that one with `--port`. A server that ignores SIGTERM is reported as `did not exit`, keeps its entry, and exits 1.
+Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact` and `--resume` but changes on `/clear`. If it says `nothing to stop` but you started a server earlier in this conversation (for example before a `/clear`), run `list` and stop that one with `--port`. A server that ignores SIGTERM is reported as `did not exit`, keeps its entry, and exits 1.
 
 ## Notes
 
