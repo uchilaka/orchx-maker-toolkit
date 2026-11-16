@@ -25,9 +25,13 @@ batch, and you apply only what they approved.
 ### 1. Scope
 
 - If the user named paths, check those.
-- Otherwise check everything a release publishes: `.gemini/skills/*`, real
-  (non-symlinked) `.claude/skills/*`, `.claude/agents/*.md` and
-  `scripts/shareable/*`.
+- Otherwise check everything a release publishes: `.gemini/skills/*`,
+  `.claude/agents/*.md`, `scripts/shareable/*`, and the Claude skills.
+  For Claude skills, `.claude-plugin/marketplace.json` decides: when it exists,
+  only the skills its `skills` arrays list are checked, wherever they live, and
+  any other real `.claude/skills/*` directory is skipped and named in the
+  notes. With no marketplace, every real (non-symlinked) `.claude/skills/*` is
+  checked.
 
 ### 2. Run the checker
 

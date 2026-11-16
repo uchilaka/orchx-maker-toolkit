@@ -524,6 +524,9 @@ function commandsIn(text) {
 // Functions and variables defined anywhere in the item. A script that sources
 // a sibling (`source _lib.sh`) uses what the sibling defines, so these are
 // collected across every file before any file is checked.
+// TODO(LAR-386): scope these per file (the file plus what it sources): a
+// `deploy()` in an unrelated helper hides an external `deploy` elsewhere, and
+// uppercase assignments hide env vars the same way.
 function shellDefinitions(files) {
   const defined = new Set();
   const assigned = new Set();
