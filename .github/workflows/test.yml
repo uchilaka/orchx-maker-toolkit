@@ -37,8 +37,6 @@ jobs:
       - name: Install Claude Code CLI (pinned)
         run: npm install -g @anthropic-ai/claude-code@2.1.296
       - run: mise run test:claude
-      # TODO(LAR-412): validate_plugin.cjs passes when marketplace.json is
-      # missing; harden it on #16, whose copy is byte-identical.
       - run: mise run build:claude
 
   gemini:
