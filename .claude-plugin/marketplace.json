@@ -2,13 +2,28 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "orchx-maker-toolkit",
   "description": "Claude Code skills and agents from the OrchX Maker Toolkit",
-  "owner": { "name": "Uchenna Chilaka", "url": "https://github.com/uchilaka" },
+  "owner": {
+    "name": "Uchenna Chilaka",
+    "url": "https://github.com/uchilaka"
+  },
   "plugins": [
     {
       "name": "orchx-maker",
       "source": "./",
       "description": "Claude-native skills from the OrchX Maker Toolkit",
-      "skills": ["./.claude/skills/patch-my-hosts", "./.claude/skills/llm-wikify", "./.claude/skills/browser-test-assist"]
+      "skills": [
+        "./.claude/skills/patch-my-hosts",
+        "./.claude/skills/llm-wikify",
+        "./.claude/skills/browser-test-assist"
+      ]
+    },
+    {
+      "name": "check-mermaid-artifact",
+      "source": "./",
+      "description": "Flags ASCII diagrams and exports mermaid to JPG for destinations that don't render it",
+      "skills": [
+        "./.claude/skills/check-mermaid-artifact"
+      ]
     }
   ]
 }

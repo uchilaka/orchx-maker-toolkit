@@ -1,0 +1,6 @@
+# Targets that render mermaid fences natively, so diagrams stay as fences there.
+# Everything not listed is exported to JPG. Add a target only after seeing a diagram
+# render through the same path the agent writes to (API or CLI), and date it.
+#
+# name    verified    note
+github    2026-11-17  PR and issue bodies, comments, repo markdown

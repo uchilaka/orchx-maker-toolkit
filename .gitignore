@@ -24,6 +24,7 @@ coverage/
 !.claude/skills/browser-test-assist
 !.claude/skills/llm-wikify
 !.claude/skills/browse
+!.claude/skills/check-mermaid-artifact
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is
@@ -33,3 +34,6 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Python bytecode from running skill scripts and tests
+__pycache__/
