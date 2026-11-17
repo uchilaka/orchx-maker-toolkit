@@ -101,7 +101,7 @@ describe("markdown renderer, untrusted input", () => {
   }
 
   test("http, https, mailto, relative and fragment targets are kept", () => {
-    for (const target of ["https://a.example/x", "http://a.example", "mailto:a@b.example", "../other.md", "#steps"]) {
+    for (const target of ["https://a.example/x", "http://a.example", "mailto:you@example.com", "../other.md", "#steps"]) {
       assert.match(render(`[b](${target})\n`), new RegExp(`<a href="${target.replace(/[.?]/g, "\\$&")}"`));
     }
   });

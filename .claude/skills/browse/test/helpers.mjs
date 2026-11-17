@@ -1,5 +1,5 @@
 // Shared fixtures for the /browse tests. Run everything with:
-//   node --test ~/.claude/skills/browse/test/'*.test.mjs'
+//   node --test .claude/skills/browse/test/'*.test.mjs'   (from the repo root)
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
