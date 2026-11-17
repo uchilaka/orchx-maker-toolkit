@@ -260,6 +260,8 @@ const THEME_OPTIONS = [
   ["dark", "Dark", `<path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/>`],
 ];
 
+// TODO(LAR-448): serve compiled CSS from the skill instead of the Play CDN
+// script, and add a CSP header.
 function htmlPage(title, main, crumbs = []) {
   return `<!DOCTYPE html>
 <html lang="en" class="h-full scroll-smooth antialiased">

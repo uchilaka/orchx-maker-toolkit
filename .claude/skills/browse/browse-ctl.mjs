@@ -292,6 +292,7 @@ async function ensure(opts) {
       if (await start(dir, port, owner, display)) {
         const url = link(port, dir);
         console.log(`${url} (started)`);
+        // TODO(LAR-450): use xdg-open on Linux, where `open` is missing or openvt.
         if (opts.open) spawn("open", [url], { stdio: "ignore" }).on("error", () => {});
         return;
       }

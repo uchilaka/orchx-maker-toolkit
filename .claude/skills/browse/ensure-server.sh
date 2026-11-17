@@ -1,6 +1,8 @@
 #!/bin/sh
 # Kept for the SessionStart autostart hook and older callers. The logic lives in
 # browse-ctl.mjs; this maps the old arguments onto it.
+# TODO(LAR-449): two hooks call this, install/hooks.json and the hot-reload-preview
+# entry in .claude-plugin/marketplace.json; keep them in step until they're one.
 #
 #   ensure-server.sh [path] [port] [--open]
 #
