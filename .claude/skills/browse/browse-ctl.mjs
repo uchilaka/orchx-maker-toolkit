@@ -2,9 +2,10 @@
 // Start, find and stop /browse servers. Any number can run, one per path, each
 // on its own port, and each one is tracked by its registry entry (registry.mjs).
 //
-//   browse-ctl.mjs ensure <path> [--open] [--shared] [--port N]
+//   browse-ctl.mjs ensure (<path> | --autostart) [--open] [--shared] [--port N]
 //   browse-ctl.mjs list
 //   browse-ctl.mjs stop (--mine | --port N | --all)
+//   browse-ctl.mjs autostart [<dir> | --clear]
 //
 // ensure: reuses a live server whose folder is <path> or contains it, and prints
 //   a deep link into it. Otherwise it starts one on the first free port from
@@ -17,10 +18,15 @@
 // list: live servers, after pruning stale entries.
 // stop: signals only verified, live browse servers. --mine stops this Claude
 //   session's; shared ones need --port or --all.
+// autostart: shows, sets or clears the folder the session-start hook serves,
+//   kept in <state dir>/autostart. `ensure --autostart` serves that folder, else
+//   ~/project-plans if it exists, else nothing; it exits 0 either way, since a
+//   hook that fails would complain at every session start.
 //
 // Exit codes: 0 ok, 1 failed, 2 usage error.
 import { spawn, execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync, statSync, unlinkSync, openSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, statSync, unlinkSync, openSync, mkdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { createServer, connect } from "node:net";
 import { request } from "node:http";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep } from "node:path";
@@ -222,7 +228,7 @@ function parse(args) {
   const opts = { _: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--open" || a === "--shared" || a === "--mine" || a === "--all") opts[a.slice(2)] = true;
+    if (["--open", "--shared", "--mine", "--all", "--autostart", "--clear"].includes(a)) opts[a.slice(2)] = true;
     else if (a === "--port") {
       const n = Number(args[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) throw new UsageError(`--port needs a port number, got ${args[i]}`);
@@ -254,11 +260,79 @@ async function start(dir, port, owner, host) {
   throw new Failure(`server didn't come up on port ${port}; see ${join(stateDir(), `${port}.log`)}`);
 }
 
+const autostartFile = () => join(stateDir(), "autostart");
+
+// Why <dir> can't be the autostart folder, or null if it can. Serving HOME or /
+// would publish every file under it on a port any local process can read.
+function autostartProblem(dir) {
+  if (!isAbsolute(dir)) return `${dir} is not an absolute path`;
+  let real;
+  try {
+    if (!statSync(dir).isDirectory()) return `${dir} is not a folder`;
+    real = realpathSync(dir);
+  } catch {
+    return `${dir} does not exist`;
+  }
+  if (real === "/" || real === realpathSync(homedir())) return `${dir} is too broad to serve`;
+  return null;
+}
+
+const expandHome = (p) => (p === "~" || p.startsWith("~/") ? homedir() + p.slice(1) : p);
+
+// The folder `ensure --autostart` serves, or null (with the reason on stderr).
+// A bad folder in the file is reported, not swapped for ~/project-plans: the
+// user chose something else, so serving the default would surprise them.
+function autostartTarget() {
+  let saved = null;
+  try {
+    saved = readFileSync(autostartFile(), "utf8").trim();
+  } catch {}
+  if (saved) {
+    const dir = expandHome(saved);
+    const problem = autostartProblem(dir);
+    if (problem) console.error(`browse: ignoring the autostart folder in ${autostartFile()}: ${problem}`);
+    return problem ? null : dir;
+  }
+  const plans = join(homedir(), "project-plans");
+  if (!autostartProblem(plans)) return plans;
+  console.error("browse: nothing to autostart: no autostart folder set and no ~/project-plans");
+  return null;
+}
+
+function autostart(opts) {
+  if (opts._.length > 1 || (opts.clear && opts._.length)) throw new UsageError("usage: browse-ctl.mjs autostart [<dir> | --clear]");
+  if (opts.clear) {
+    try {
+      unlinkSync(autostartFile());
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+    }
+    return console.log("autostart folder cleared");
+  }
+  if (!opts._.length) {
+    let saved = "";
+    try {
+      saved = readFileSync(autostartFile(), "utf8").trim();
+    } catch {}
+    return console.log(saved || "not set (the hook serves ~/project-plans if it exists)");
+  }
+  const dir = resolve(expandHome(opts._[0]));
+  const problem = autostartProblem(dir);
+  if (problem) throw new UsageError(problem);
+  mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(autostartFile(), dir + "\n", { mode: 0o600 });
+  console.log(dir);
+}
+
 async function ensure(opts) {
-  if (opts._.length !== 1) throw new UsageError("usage: browse-ctl.mjs ensure <path> [--open] [--shared] [--port N]");
+  if (opts._.length !== (opts.autostart ? 0 : 1)) {
+    throw new UsageError("usage: browse-ctl.mjs ensure (<path> | --autostart) [--open] [--shared] [--port N]");
+  }
+  const chosen = opts.autostart ? autostartTarget() : opts._[0];
+  if (!chosen) return;
   // TODO(LAR-398): realpath both sides, so /tmp vs /private/tmp or a symlinked
   // folder is recognised as already served.
-  const target = resolve(opts._[0]);
+  const target = resolve(chosen);
   let isDir;
   try {
     isDir = statSync(target).isDirectory();
@@ -365,7 +439,10 @@ async function main(argv) {
   if (cmd === "ensure") return ensure(opts);
   if (cmd === "list") return list();
   if (cmd === "stop") return stop(opts);
-  throw new UsageError("usage: browse-ctl.mjs (ensure <path> [--open] [--shared] [--port N] | list | stop (--mine | --port N | --all))");
+  if (cmd === "autostart") return autostart(opts);
+  throw new UsageError(
+    "usage: browse-ctl.mjs (ensure (<path> | --autostart) [--open] [--shared] [--port N] | list | stop (--mine | --port N | --all) | autostart [<dir> | --clear])"
+  );
 }
 
 try {
