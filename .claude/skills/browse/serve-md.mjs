@@ -88,6 +88,11 @@ const LINK = "font-medium text-sky-600 no-underline hover:underline dark:text-sk
 // ---------------------------------------------------------------------------
 // Code is stashed behind \u0000 placeholders first, so no later rule (bold,
 // lists, links) can rewrite what's inside a code span or fence.
+//
+// Everything else is escaped next, before any rule runs: a plan can quote a
+// hostile PR or issue body, and a script on this port could read every served
+// file. So raw HTML shows as text, entities show literally, and the blockquote
+// rule matches the escaped `&gt;`. Link targets also go through safeHref.
 function renderMarkdown(md) {
   const blocks = [];
   const spans = [];
@@ -104,14 +109,16 @@ function renderMarkdown(md) {
     spans.push(code);
     return `\u0000C${spans.length - 1}\u0000`;
   });
+  html = escapeHtml(html);
 
-  // Plain text of a line, for heading ids and TOC labels
+  // Plain text of a line, for heading ids and TOC labels. Unescaped: the TOC
+  // escapes its labels itself.
   const plain = (s) =>
-    s.replace(/[*_]|\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\u0000C(\d+)\u0000/g, (_m, i) => spans[i]);
+    unescapeHtml(s.replace(/[*_]|\[([^\]]*)\]\([^)]*\)/g, "$1")).replace(/\u0000C(\d+)\u0000/g, (_m, i) => spans[i]);
 
   // `## Status: IN PROGRESS (2026-09-19)` from the project plan template → badge
   html = html.replace(/^##\s+Status:\s*([A-Z][A-Z ]*?)\s*(\(.*\))?\s*$/gm, (_m, status, rest) => {
-    const note = rest ? `<span class="text-sm text-zinc-500 dark:text-zinc-400">${escapeHtml(rest.slice(1, -1))}</span>` : "";
+    const note = rest ? `<span class="text-sm text-zinc-500 dark:text-zinc-400">${rest.slice(1, -1)}</span>` : "";
     return `\n\n<div class="not-prose my-6 flex items-center gap-3">${statusBadge(status)}${note}</div>\n\n`;
   });
 
@@ -131,10 +138,10 @@ function renderMarkdown(md) {
 
   html = html.replace(/^---+$/gm, "\n\n<hr>\n\n");
 
-  html = html.replace(/^(?:>\s?(.*)(?:\n|$))+/gm, (match) => {
+  html = html.replace(/^(?:&gt;\s?(.*)(?:\n|$))+/gm, (match) => {
     const inner = match
       .split("\n")
-      .map((line) => line.replace(/^>\s?/, ""))
+      .map((line) => line.replace(/^&gt;\s?/, ""))
       .join("\n")
       .trim();
     return `\n\n<blockquote>${inner.replace(/\n/g, "<br>")}</blockquote>\n\n`;
@@ -151,7 +158,7 @@ function renderMarkdown(md) {
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/(^|[^\w*])\*(?!\s)(.+?)\*(?!\w)/g, "$1<em>$2</em>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href="$2" class="${LINK}">$1</a>`);
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => `<a href="${safeHref(href)}" class="${LINK}">${text}</a>`);
 
   // Paragraphs: loose lines join with a space, as in any markdown renderer, so
   // hard-wrapped source reads as flowing text.
@@ -219,6 +226,18 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function unescapeHtml(s) {
+  return s.replace(/&(lt|gt|quot|amp);/g, (_m, e) => ({ lt: "<", gt: ">", quot: '"', amp: "&" })[e]);
+}
+
+// An already-escaped link target, kept only if it's relative or uses a scheme
+// that can't run script. Browsers drop tabs, newlines and leading spaces from a
+// URL before reading its scheme, so the check does too.
+function safeHref(href) {
+  const scheme = href.replace(/[\u0000-\u0020]/g, "").match(/^([a-z][a-z0-9+.-]*):/i)?.[1].toLowerCase();
+  return !scheme || ["http", "https", "mailto"].includes(scheme) ? href : "#";
 }
 
 function timeAgo(ms) {
@@ -582,9 +601,18 @@ export async function main(args = process.argv.slice(2)) {
     res.end(html);
   }
 
-  // TODO(LAR-399): reject a Host header other than localhost, 127.0.0.1 or
-  // BROWSE_HOST, against DNS rebinding.
+  // Against DNS rebinding: a page on evil.example can re-resolve its own name to
+  // 127.0.0.1 and then read this port as same-origin, but its requests still
+  // carry Host: evil.example. Only the names this server is reached by get in,
+  // including /__health and /__sse, so no other origin learns the served path.
+  const allowedHosts = new Set(["localhost", "127.0.0.1", (process.env.BROWSE_HOST || "localhost").toLowerCase()]);
   const server = createServer(async (req, res) => {
+    const host = (req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
+    if (!allowedHosts.has(host)) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Forbidden: unexpected Host header\n");
+      return;
+    }
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
 
