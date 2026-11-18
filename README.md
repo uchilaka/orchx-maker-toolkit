@@ -79,11 +79,17 @@ gemini skills link ./.gemini/skills
 
 ### Installing the Claude Code plugin
 
-The repo's Claude-native skills (currently `patch-my-hosts`, `llm-wikify` and `browser-test-assist`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
+The repo's Claude-native skills (currently `patch-my-hosts`, `llm-wikify`, `browser-test-assist` and `browse`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
 ```bash
 claude plugin marketplace add uchilaka/orchx-maker-toolkit
 claude plugin install orchx-maker@orchx-maker-toolkit
 ```
+
+To also start the `/browse` live-reload preview at every session start, install `hot-reload-preview`. It holds only that hook and brings `orchx-maker` along as a dependency:
+```bash
+claude plugin install hot-reload-preview@orchx-maker-toolkit
+```
+It serves the folder you choose the first time `/browse` offers, or `~/project-plans` if it exists, or nothing. The hook runs code from this repo at every session start, so add the marketplace at a release tag if you'd rather not run each new push to `main`.
 The Gemini skills above are not part of the plugin. Several share a name with a different skill in a typical Claude Code setup, so they stay Gemini-only.
 
 ### Activating Skills

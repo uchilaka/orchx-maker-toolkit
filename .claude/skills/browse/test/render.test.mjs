@@ -15,6 +15,15 @@ describe("markdown renderer", () => {
     assert.doesNotMatch(block, /<strong>|<li>|<a href/);
   });
 
+  test("a mermaid fence becomes a diagram element, escaped and untouched by markdown rules", () => {
+    const src = 'flowchart LR\n  A["**not bold**"] -->|"a < b"| B\n  - not a list';
+    const out = renderMarkdown("```mermaid\n" + src + "\n```").html;
+    const pre = out.match(/<pre class="mermaid">([\s\S]*?)<\/pre>/);
+    assert.ok(pre, "diagram element");
+    assert.equal(pre[1], src.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"));
+    assert.doesNotMatch(out, /data-code|<strong>|<li>/);
+  });
+
   test("inline code is protected from emphasis", () => {
     const out = renderMarkdown("see `~/plans/**/*.md` and `a*b*c`").html;
     assert.match(out, /~\/plans\/\*\*\/\*\.md/);
@@ -77,8 +86,63 @@ describe("markdown renderer", () => {
   });
 });
 
+// A plan can quote a hostile PR or issue body, and the page runs on a port that
+// can read every served file, so nothing in the source may become markup.
+describe("markdown renderer, untrusted input", () => {
+  const render = (md) => renderMarkdown(md).html;
+
+  test("raw HTML is shown as text, not run", () => {
+    const out = render("Hi <img src=x onerror=alert(1)> and <script>alert(2)</script>\n");
+    assert.doesNotMatch(out, /<img|<script/);
+    assert.match(out, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  });
+
+  test("a quote in a link target can't open a new attribute", () => {
+    const out = render('[b](x" onmouseover="alert(2))\n');
+    assert.doesNotMatch(out, /" onmouseover="/);
+    assert.match(out, /href="x&quot; onmouseover=&quot;alert\(2"/);
+  });
+
+  for (const target of ["javascript:alert(1)", "JavaScript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "vbscript:x"]) {
+    test(`a ${JSON.stringify(target.split(":")[0])} link target is dropped`, () => {
+      assert.match(render(`[b](${target})\n`), /<a href="#"/);
+    });
+  }
+
+  test("http, https, mailto, relative and fragment targets are kept", () => {
+    for (const target of ["https://a.example/x", "http://a.example", "mailto:you@example.com", "../other.md", "#steps"]) {
+      assert.match(render(`[b](${target})\n`), new RegExp(`<a href="${target.replace(/[.?]/g, "\\$&")}"`));
+    }
+  });
+
+  test("raw HTML in a heading stays out of the heading, its id and the TOC", () => {
+    const { html: out, toc: t } = renderMarkdown("## A <b>bold</b> & co\n");
+    assert.match(out, /<h2 id="a-bboldb-co" [^>]*>A &lt;b&gt;bold&lt;\/b&gt; &amp; co</);
+    assert.equal(t[0].label, "A <b>bold</b> & co");
+  });
+
+  test("raw HTML in a table cell and a status note is escaped", () => {
+    const out = render("## Status: PROPOSED (<i>x</i>)\n\n| a |\n|---|\n| <b>c</b> |\n");
+    assert.doesNotMatch(out, /<i>|<b>/);
+  });
+
+  test("an entity is shown literally rather than decoded", () => {
+    assert.match(render("a &lt;b&gt; &#58;\n"), /a &amp;lt;b&amp;gt; &amp;#58;/);
+  });
+
+  test("a quoted line still renders as a blockquote", () => {
+    assert.match(render("> a -> b\n"), /<blockquote>a -&gt; b<\/blockquote>/);
+  });
+});
+
 describe("page shell", () => {
   const page = htmlPage("T", "<p>x</p>", [{ label: "plans", href: "/" }, { label: "doc.md" }]);
+
+  test("mermaid loads, pinned, only on pages that hold a diagram", () => {
+    const withDiagram = htmlPage("T", renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```").html);
+    assert.match(withDiagram, /cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.esm\.min\.mjs/);
+    assert.doesNotMatch(page, /mermaid/);
+  });
 
   test("no inline CSS: Tailwind CDN with typography, dark mode by class", () => {
     assert.doesNotMatch(page, /<style/);

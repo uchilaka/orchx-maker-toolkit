@@ -1,5 +1,5 @@
 // Shared fixtures for the /browse tests. Run everything with:
-//   node --test ~/.claude/skills/browse/test/'*.test.mjs'
+//   node --test .claude/skills/browse/test/'*.test.mjs'   (from the repo root)
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,12 +78,12 @@ export function startServer(path, { env = {}, server = SERVER } = {}) {
 }
 
 // GET with the path sent exactly as given (fetch() would normalize ../).
-export function rawGet(base, path) {
+export function rawGet(base, path, headers = {}) {
   const { hostname, port } = new URL(base);
   return new Promise((resolve, reject) => {
     // agent: false → a fresh connection per request. A pooled keep-alive socket
     // outlives a server that ensure-server.sh just replaced, and fails the next GET.
-    const req = request({ hostname, port, path, method: "GET", agent: false }, (res) => {
+    const req = request({ hostname, port, path, method: "GET", agent: false, headers }, (res) => {
       let body = "";
       res.on("data", (d) => (body += d));
       res.on("end", () => resolve({ status: res.statusCode, body }));

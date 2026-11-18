@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`browse` in the plugin:** `/browse` now ships in `orchx-maker`, and a new `hot-reload-preview` plugin adds its session-start autostart hook. The skill sets the folder the hook serves (`browse-ctl.mjs autostart`).
+
+### Security
+- **`browse`:** raw HTML in rendered markdown shows as text, and links keep only `http`, `https`, `mailto` and relative targets. Requests with a foreign `Host` header get a 403, against DNS rebinding.
+
 ## [0.7.0-alpha] - 2026-04-27
 
 ### Added

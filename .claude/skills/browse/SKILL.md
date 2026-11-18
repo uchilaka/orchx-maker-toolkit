@@ -7,13 +7,16 @@ description: Serve and view Claude artifacts (plans, reviews, goals, memory, pul
 
 This skill lets the user pick an artifact from their Claude ecosystem and view it in the browser as **rendered markdown** with **live reload** (changes on disk update the preview automatically).
 
+Every script path below uses `${CLAUDE_SKILL_DIR}`, which Claude Code expands to this skill's own folder, wherever it was installed.
+
 ## Server Script
 
-The markdown preview server lives at `~/.claude/skills/browse/serve-md.mjs`. It:
+The markdown preview server lives at `${CLAUDE_SKILL_DIR}/serve-md.mjs`. It:
 - Renders `.md` files with Tailwind 3 + `@tailwindcss/typography`: sticky header with breadcrumbs, "On this page" sidebar, code blocks with copy buttons, plan checklists as checkboxes, and `## Status:` lines as badges. A Light / System / Dark switch in the header, defaulting to System and remembered per browser
 - Shows a card index when serving a directory: title, status badge and last-updated per file, grouped by folder, filterable (press `/`)
 - Pushes live reload via Server-Sent Events — any saved `.md` change refreshes the browser
 - No npm install — runs with plain `node`; Tailwind loads from its Play CDN, so pages render unstyled offline
+- Shows markdown as text first: raw HTML in a document renders as literal text, and links keep only `http`, `https`, `mailto` and relative targets. A plan can quote a hostile issue body, and a script on the preview port could read every served file
 
 ## Artifact Sources
 
@@ -30,7 +33,7 @@ Scan these locations for servable artifacts:
 | `~/.claude/guides/` | Guides |
 | `~/.claude/skills/` | Skills |
 
-Only include locations that actually exist and contain files.
+Only include locations that actually exist and contain files. If none do (a fresh install), skip the list and ask the user which folder to serve.
 
 ## Workflow
 
@@ -60,7 +63,7 @@ Ask the user to pick a number.
 ### Step 2: Ensure a server for that path
 
 ```bash
-node ~/.claude/skills/browse/browse-ctl.mjs ensure <path> --open
+node "${CLAUDE_SKILL_DIR}/browse-ctl.mjs" ensure <path> --open
 ```
 
 `<path>` can be a folder or a single `.md` file. The command:
@@ -70,6 +73,22 @@ node ~/.claude/skills/browse/browse-ctl.mjs ensure <path> --open
 - opens the browser only if it started a new server. When it prints `(already running)` and the user wants to see it, run `open '<url>'`
 
 It prints the URL, followed by `(started)` or `(already running)`. The host is `plans.localhost` once `/etc/hosts` maps it (see **Vanity URL**), and `localhost` until then.
+
+### Step 2b: Offer it as the autostart folder (once)
+
+When you served a folder, not a single file, check what the session-start hook would serve:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/browse-ctl.mjs" autostart
+```
+
+If it prints `not set` and `~/project-plans` doesn't exist, the hook has nothing to serve. Ask once whether to serve this folder at every session start. Only on yes, run:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/browse-ctl.mjs" autostart <folder>
+```
+
+It refuses a folder that doesn't exist, the home folder and `/`. Don't ask again in the same conversation, and don't ask when an autostart folder is already set.
 
 ### Step 3: Stand by
 
@@ -82,7 +101,7 @@ Tell the user:
 When the user says "done" (or any clear signal they're finished), stop this session's servers:
 
 ```bash
-node ~/.claude/skills/browse/browse-ctl.mjs stop --mine
+node "${CLAUDE_SKILL_DIR}/browse-ctl.mjs" stop --mine
 ```
 
 This stops only servers this session started. Other sessions' servers and the shared `~/project-plans` autostart keep running. To stop one specifically, use `stop --port <port>`; `stop --all` stops every registered server. Confirm what was stopped from its output.
@@ -98,18 +117,24 @@ Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact` and `-
 - Ports come from 3200–3220, first free wins (`BROWSE_PORT_MIN`/`BROWSE_PORT_MAX` override the range). A port anything answers on, over 127.0.0.1 or ::1, is skipped and never killed. Servers bind to 127.0.0.1 only. Each server logs to `~/.claude/state/browse/<port>.log`.
 - **Registry:** each live server has an entry, `~/.claude/state/browse/<port>.json` (directory mode 0700), with its pid, port, path, owner and start time. `browse-ctl.mjs list` shows them. An entry is pruned when its pid is gone or isn't a browse server, or its port answers as something else. One that is merely slow to answer is kept. `ensure` holds `~/.claude/state/browse/.lock` while it runs, so parallel sessions don't start duplicates.
 - `GET /__health` returns `{"path", "pid"}` as JSON. `browse-ctl.mjs` checks both against an entry before trusting or signalling it.
+- Every request whose `Host` isn't `localhost`, `127.0.0.1` or `BROWSE_HOST` gets a 403, `/__health` and `/__sse` included. That stops DNS rebinding: a web page that re-resolves its own name to 127.0.0.1 still sends its own name as the Host.
 
 ## Autostart
 
-An optional `SessionStart` hook (matcher `startup`) in `~/.claude/settings.json` runs:
+A `SessionStart` hook (matcher `startup`) runs, with output discarded so it costs no context:
 
 ```bash
-ensure-server.sh ~/project-plans --open >/dev/null 2>&1
+ensure-server.sh --open >/dev/null 2>&1
 ```
 
-`mise run install:claude-global browse` (in the toolkit repo) asks whether to add it, from `install/hooks.json`; pass `--with-hooks` or `--no-hooks` to answer up front. Adding it also creates `~/project-plans` and `~/pr-reviews`. `uninstall:claude-global browse` removes it.
+With no folder argument, `ensure-server.sh` serves the autostart folder (`browse-ctl.mjs autostart`, saved in `~/.claude/state/browse/autostart`), else `~/project-plans` if it exists, else nothing. It always exits 0, so a missing folder never shows a hook error, and it appends the reason to `~/.claude/state/browse/autostart.log`. It skips `--open` over SSH and on Linux without a display. `/clear`, `/compact` and resumed sessions don't trigger it. Its servers are owned by `shared`, so `stop --mine` never stops them.
 
-Output is discarded, so it costs no context. `/clear`, `/compact` and resumed sessions don't trigger it. `ensure-server.sh` wraps `browse-ctl.mjs ensure --shared`. Its servers are owned by `shared`, so `stop --mine` never stops them.
+There are two ways to install the hook. **Pick one.**
+
+- **The `hot-reload-preview` plugin**, from the `orchx-maker-toolkit` marketplace. It holds only the hook and depends on `orchx-maker`, which brings this skill. Enabling it runs code from the marketplace's source at every session start, without asking. Install the marketplace from a tag rather than `main` if you don't want each new push to run unreviewed on your machine.
+- **`mise run install:claude-global browse`**, in the toolkit repo, for a symlinked install. It asks whether to add the hook from `install/hooks.json` (`--with-hooks` or `--no-hooks` answer up front), creates `~/project-plans` and `~/pr-reviews`, and `uninstall:claude-global browse` removes it. Re-run it to replace an older hook that passed `~/project-plans`; the old one still works.
+
+Both installs together load this skill twice and run the hook twice. The second run finds the first server and reuses it, so you still get one server and one tab, but there's no reason to keep both.
 
 ## Vanity URL
 
@@ -131,18 +156,18 @@ sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
 ## Tests
 
 ```bash
-node --test ~/.claude/skills/browse/test/'*.test.mjs'
+node --test "${CLAUDE_SKILL_DIR}"/test/'*.test.mjs'
 ```
 
 Built-in `node:test`, so there's still nothing to install. Pass the glob, not the folder: Node 24 treats `test/` as a single file and fails. In this repo, `mise run test:claude` runs them too. About 3 seconds.
 
 | File | Covers |
 |---|---|
-| `render.test.mjs` | Markdown renderer, page shell, theme script (every OS-setting × saved-choice combination, run in a stub DOM) |
-| `server.test.mjs` | `/__health`, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
+| `render.test.mjs` | Markdown renderer (including raw HTML and unsafe link targets), page shell, theme script (every OS-setting × saved-choice combination, run in a stub DOM) |
+| `server.test.mjs` | `/__health`, the Host check, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
 | `registry.test.mjs` | The server writes its registry entry on listen and removes it on exit, never removing a newer server's |
-| `ctl.test.mjs` | `ensure` reuse by owner, deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit |
-| `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the `SessionStart` hook (only when `~/.claude/settings.json` has one) |
+| `ctl.test.mjs` | `ensure` reuse by owner, deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit; `autostart` and `ensure --autostart` |
+| `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the no-folder hook mode and its log, `~` expansion, the OS guard, finding node, dropping `--open` when headless, and the `SessionStart` hook (only when `~/.claude/settings.json` has one) |
 | `tailwind.test.mjs` | Compiles every class with a real Tailwind 3.4. The Play CDN skips a class it can't build without any error, so this is the only check that would catch one. Skipped unless `TAILWIND_DIR` (default: `cami-ritv`) has `tailwindcss` installed |
 
 Every test uses its own registry (`BROWSE_STATE_DIR` or a temp `HOME`) and a port range away from 3200, and `stop` only signals servers in its own registry, so running tests never touches the real `plans.localhost` server.

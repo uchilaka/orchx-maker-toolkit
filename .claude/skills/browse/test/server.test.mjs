@@ -23,6 +23,29 @@ describe("server, directory mode", { timeout: 30_000 }, () => {
     assert.deepEqual(JSON.parse(r.body), { path: tree.plans, pid: srv.child.pid });
   });
 
+  // DNS rebinding: a page on evil.example re-resolves its own name to 127.0.0.1
+  // and reads this port as same-origin. Its requests still say Host: evil.example.
+  for (const path of ["/", "/global/PLAN.md", "/__health", "/__sse"]) {
+    test(`${path} refuses a foreign Host header`, async () => {
+      const port = new URL(srv.base).port;
+      const r = await rawGet(srv.base, path, { Host: `evil.example:${port}` });
+      assert.equal(r.status, 403);
+      assert.doesNotMatch(r.body, new RegExp(tree.plans.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    });
+  }
+
+  for (const host of ["localhost", "127.0.0.1", "plans.localhost", "PLANS.localhost"]) {
+    test(`accepts Host: ${host}`, async () => {
+      const port = new URL(srv.base).port;
+      assert.equal((await rawGet(srv.base, "/", { Host: `${host}:${port}` })).status, 200);
+    });
+  }
+
+  test("refuses a lookalike Host that only starts with an allowed name", async () => {
+    const port = new URL(srv.base).port;
+    assert.equal((await rawGet(srv.base, "/", { Host: `localhost.evil.example:${port}` })).status, 403);
+  });
+
   test("index: a card per file with its title and status, grouped by folder", async () => {
     const { body } = await rawGet(srv.base, "/");
     assert.equal((body.match(/<li data-search=/g) || []).length, 3);

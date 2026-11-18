@@ -2,10 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "orchx-maker-toolkit",
   "description": "Claude Code skills and agents from the OrchX Maker Toolkit",
-  "owner": {
-    "name": "Uchenna Chilaka",
-    "url": "https://github.com/uchilaka"
-  },
+  "owner": { "name": "Uchenna Chilaka", "url": "https://github.com/uchilaka" },
   "plugins": [
     {
       "name": "orchx-maker",
@@ -14,16 +11,32 @@
       "skills": [
         "./.claude/skills/patch-my-hosts",
         "./.claude/skills/llm-wikify",
-        "./.claude/skills/browser-test-assist"
+        "./.claude/skills/browser-test-assist",
+        "./.claude/skills/browse"
       ]
     },
     {
       "name": "check-mermaid-artifact",
       "source": "./",
       "description": "Flags ASCII diagrams and exports mermaid to PNG for destinations that don't render it",
-      "skills": [
-        "./.claude/skills/check-mermaid-artifact"
-      ]
+      "skills": ["./.claude/skills/check-mermaid-artifact"]
+    },
+    {
+      "name": "hot-reload-preview",
+      "source": "./",
+      "description": "Starts the /browse live-reload preview server when a session starts",
+      "skills": [],
+      "dependencies": ["orchx-maker"],
+      "hooks": {
+        "SessionStart": [
+          {
+            "matcher": "startup",
+            "hooks": [
+              { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/.claude/skills/browse/ensure-server.sh --open >/dev/null 2>&1" }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
