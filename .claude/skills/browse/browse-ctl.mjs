@@ -31,7 +31,7 @@ import { createServer, connect } from "node:net";
 import { request } from "node:http";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stateDir, readEntry, removeEntry, ownerFromEnv } from "./registry.mjs";
+import { stateDir, readEntry, removeEntry, ownerFromEnv, codeVersion } from "./registry.mjs";
 
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), "serve-md.mjs");
 
@@ -151,7 +151,9 @@ async function liveEntries() {
       removeEntry(port, e.pid);
       continue;
     }
-    live.push(e);
+    // code is what the server reports, never what the entry says: undefined for
+    // a server that predates the fingerprint, which counts as older code too.
+    live.push({ ...e, code: h.code });
   }
   return live.sort((a, b) => a.port - b.port);
 }
@@ -351,10 +353,27 @@ async function ensure(opts) {
       .filter((e) => (e.owner === "shared" || e.owner === owner) && (dir === e.path || dir.startsWith(e.path + sep)))
       .sort((a, b) => b.path.length - a.path.length)[0];
     if (covering) {
+      // Reusing a server on older code would serve the old renderer
+      // indefinitely, so restart it in place: same port (open tabs reconnect
+      // and reload), same path and owner. No new tab, since one is open.
+      if (covering.code !== codeVersion()) {
+        if (!(await terminate(covering))) {
+          console.error(`browse: ${covering.port} (pid ${covering.pid}) runs older code and did not exit; reusing it`);
+        } else if (await start(covering.path, covering.port, covering.owner, display)) {
+          console.log(`${link(covering.port, covering.path)} (restarted: code changed)`);
+          return;
+        } else {
+          // Something took the port in between; fall through to a fresh start.
+          return startOnFreePort();
+        }
+      }
       console.log(`${link(covering.port, covering.path)} (already running)`);
       return;
     }
+    return startOnFreePort();
+  });
 
+  async function startOnFreePort() {
     const min = Number(process.env.BROWSE_PORT_MIN || 3200);
     const max = Number(process.env.BROWSE_PORT_MAX || 3220);
     const candidates = opts.port ? [opts.port] : Array.from({ length: max - min + 1 }, (_, i) => min + i);
@@ -372,7 +391,7 @@ async function ensure(opts) {
       }
     }
     throw new Failure(`no free port in ${min}–${max}`);
-  });
+  }
 }
 
 // The owner this session's servers are recorded under, or null outside Claude
@@ -400,6 +419,24 @@ function age(iso) {
   return `${Math.round(s / 3600)}h`;
 }
 
+// SIGTERM a verified browse server, wait up to 3s, and remove its entry once
+// it's gone. Returns false, keeping the entry, if it's still running.
+async function terminate(e) {
+  // Checked again: the verification in liveEntries can be seconds old, and
+  // another stop may already have ended this server.
+  if (isBrowseServer(e.pid)) {
+    try {
+      process.kill(e.pid, "SIGTERM");
+    } catch (err) {
+      if (err.code !== "ESRCH") throw err;
+    }
+    for (let i = 0; i < 30 && alive(e.pid); i++) await sleep(100);
+  }
+  if (alive(e.pid) && isBrowseServer(e.pid)) return false;
+  removeEntry(e.port, e.pid);
+  return true;
+}
+
 async function stop(opts) {
   const selectors = [opts.mine, opts.port !== undefined, opts.all].filter(Boolean).length;
   if (selectors !== 1) throw new UsageError("usage: browse-ctl.mjs stop (--mine | --port N | --all)");
@@ -411,22 +448,11 @@ async function stop(opts) {
   if (opts.port !== undefined && !targets.length) throw new Failure(`no browse server on port ${opts.port}`);
   let stuck = 0;
   for (const e of targets) {
-    // Checked again: the verification in liveEntries can be seconds old, and
-    // another stop may already have ended this server.
-    if (isBrowseServer(e.pid)) {
-      try {
-        process.kill(e.pid, "SIGTERM");
-      } catch (err) {
-        if (err.code !== "ESRCH") throw err;
-      }
-      for (let i = 0; i < 30 && alive(e.pid); i++) await sleep(100);
-    }
-    if (alive(e.pid) && isBrowseServer(e.pid)) {
+    if (!(await terminate(e))) {
       console.error(`browse: ${e.port} (pid ${e.pid}) did not exit; its entry is kept`);
       stuck++;
       continue;
     }
-    removeEntry(e.port, e.pid);
     console.log(`stopped ${e.port} ${e.path}`);
   }
   if (stuck) throw new Failure(`${stuck} server(s) still running; kill -9 the pid above`);

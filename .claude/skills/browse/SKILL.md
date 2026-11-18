@@ -69,10 +69,11 @@ node "${CLAUDE_SKILL_DIR}/browse-ctl.mjs" ensure <path> --open
 `<path>` can be a folder or a single `.md` file. The command:
 - reuses a live server whose folder is `<path>` or contains it, if it's shared or this session's, and prints a deep link into it
 - otherwise starts one, owned by this Claude session. A file gets its folder served, with the link pointing at the file
+- restarts that server, on the same port and with the same owner, if it runs older code than the skill files on disk. Node never reloads a loaded module, so without this an update (a renderer fix, say) wouldn't show until the server was stopped by hand. Open tabs reconnect and reload by themselves
 - leaves every other browse server running
-- opens the browser only if it started a new server. When it prints `(already running)` and the user wants to see it, run `open '<url>'`
+- opens the browser only if it started a new server. When it prints `(already running)` or `(restarted: code changed)` and the user wants to see it, run `open '<url>'`
 
-It prints the URL, followed by `(started)` or `(already running)`. The host is `plans.localhost` once `/etc/hosts` maps it (see **Vanity URL**), and `localhost` until then.
+It prints the URL, followed by `(started)`, `(already running)` or `(restarted: code changed)`. An older server that won't exit is reused with a warning on stderr. The host is `plans.localhost` once `/etc/hosts` maps it (see **Vanity URL**), and `localhost` until then.
 
 ### Step 2b: Offer it as the autostart folder (once)
 
@@ -116,7 +117,7 @@ Ownership is keyed on `CLAUDE_CODE_SESSION_ID`, which survives `/compact` and `-
 - If `node` is not available, fall back to `yarn dlx serve` for raw file serving.
 - Ports come from 3200–3220, first free wins (`BROWSE_PORT_MIN`/`BROWSE_PORT_MAX` override the range). A port anything answers on, over 127.0.0.1 or ::1, is skipped and never killed. Servers bind to 127.0.0.1 only. Each server logs to `~/.claude/state/browse/<port>.log`.
 - **Registry:** each live server has an entry, `~/.claude/state/browse/<port>.json` (directory mode 0700), with its pid, port, path, owner and start time. `browse-ctl.mjs list` shows them. An entry is pruned when its pid is gone or isn't a browse server, or its port answers as something else. One that is merely slow to answer is kept. `ensure` holds `~/.claude/state/browse/.lock` while it runs, so parallel sessions don't start duplicates.
-- `GET /__health` returns `{"path", "pid"}` as JSON. `browse-ctl.mjs` checks both against an entry before trusting or signalling it.
+- `GET /__health` returns `{"path", "pid", "code"}` as JSON. `browse-ctl.mjs` checks path and pid against an entry before trusting or signalling it. `code` is a fingerprint of `serve-md.mjs` and `registry.mjs` taken at startup (`codeVersion()` in `registry.mjs`). A server that reports a different one, or none, is running older code.
 - Every request whose `Host` isn't `localhost`, `127.0.0.1` or `BROWSE_HOST` gets a 403, `/__health` and `/__sse` included. That stops DNS rebinding: a web page that re-resolves its own name to 127.0.0.1 still sends its own name as the Host.
 
 ## Autostart
@@ -164,9 +165,9 @@ Built-in `node:test`, so there's still nothing to install. Pass the glob, not th
 | File | Covers |
 |---|---|
 | `render.test.mjs` | Markdown renderer (including raw HTML and unsafe link targets), page shell, theme script (every OS-setting × saved-choice combination, run in a stub DOM) |
-| `server.test.mjs` | `/__health`, the Host check, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
+| `server.test.mjs` | `/__health` (including the code fingerprint), the Host check, index and sub-index links, breadcrumbs, 404, path traversal, SSE live reload |
 | `registry.test.mjs` | The server writes its registry entry on listen and removes it on exit, never removing a newer server's |
-| `ctl.test.mjs` | `ensure` reuse by owner, deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit; `autostart` and `ensure --autostart` |
+| `ctl.test.mjs` | `ensure` reuse by owner, restarting a server on older code (and reusing one that won't stop), deep links and URL escaping, port scan, foreign holders on every loopback address, the lock; pruning only stale entries; `list`; `stop --mine/--port/--all`, and a server that won't exit; `autostart` and `ensure --autostart` |
 | `ensure-server.test.mjs` | The wrapper: shared ownership, reuse, parallel servers, the no-folder hook mode and its log, `~` expansion, the OS guard, finding node, dropping `--open` when headless, and the `SessionStart` hook (only when `~/.claude/settings.json` has one) |
 | `tailwind.test.mjs` | Compiles every class with a real Tailwind 3.4. The Play CDN skips a class it can't build without any error, so this is the only check that would catch one. Skipped unless `TAILWIND_DIR` (default: `cami-ritv`) has `tailwindcss` installed |
 

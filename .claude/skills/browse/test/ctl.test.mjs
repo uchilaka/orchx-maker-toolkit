@@ -5,7 +5,7 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, chmodSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, chmodSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -295,6 +295,55 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       const r = ctl(["ensure", join(tree.root, "nope")]);
       assert.equal(r.status, 2);
       assert.match(r.stderr, /no such file or directory/);
+    });
+  });
+
+  // A server keeps the code it started with, so one that predates an update
+  // (a renderer fix, say) would otherwise be reused, stale, until someone
+  // stops it by hand.
+  describe("a server running older code", () => {
+    // A copy of the server whose code differs from the skill's by one comment.
+    function oldServerCopy() {
+      const dir = join(tree.root, "old-skill");
+      mkdirSync(dir);
+      copyFileSync(join(SKILL_DIR, "registry.mjs"), join(dir, "registry.mjs"));
+      writeFileSync(join(dir, "serve-md.mjs"), readFileSync(join(SKILL_DIR, "serve-md.mjs"), "utf8") + "\n// older\n");
+      return join(dir, "serve-md.mjs");
+    }
+
+    test("is restarted on its port, keeping its owner, without opening a tab", async () => {
+      const old = await startServer(tree.plans, {
+        server: oldServerCopy(), env: { BROWSE_STATE_DIR: state, BROWSE_OWNER: "shared" },
+      });
+      spawned.push(old.child);
+      const port = Number(old.url.split(":").pop());
+      const r = await ctlAsync(["ensure", tree.plans, "--open"]);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout.trim(), `http://localhost:${port} (restarted: code changed)`);
+      assert.ok(!alive(old.child.pid), "the old server is still running");
+      const e = entryAt(port);
+      assert.notEqual(e.pid, old.child.pid);
+      assert.equal(e.owner, "shared");
+      assert.equal(await health(port), tree.plans);
+      assert.deepEqual(openCalls(), []);
+      // The new server runs the current code, so the next ensure reuses it.
+      assert.match((await ctlAsync(["ensure", tree.plans])).stdout, /\(already running\)/);
+    });
+
+    test("one that won't stop is reused, with a warning, rather than failing", async () => {
+      const dir = join(tree.root, "stuck");
+      mkdirSync(dir);
+      const s = await stub(dir, "serve-md.mjs", base, tree.plans, { ignoreTerm: true });
+      spawned.push(s);
+      writeFileSync(join(state, `${base}.json`), JSON.stringify({
+        pid: s.pid, port: base, path: tree.plans, url: `http://localhost:${base}`, owner: "sess-a",
+        started: new Date().toISOString(),
+      }));
+      const r = await ctlAsync(["ensure", tree.plans]);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout.trim(), `http://localhost:${base} (already running)`);
+      assert.match(r.stderr, /older code.*did not exit/);
+      assert.ok(alive(s.pid));
     });
   });
 
