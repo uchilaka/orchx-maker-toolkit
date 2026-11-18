@@ -37,6 +37,12 @@
           }
         ]
       }
+    },
+    {
+      "name": "openv",
+      "source": "./",
+      "description": "Loads Proton Pass secrets into a command's environment on demand, keeping values out of Claude sessions",
+      "skills": ["./.claude/skills/openv"]
     }
   ]
 }

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# openv — load Proton Pass secrets into a command's environment on demand,
+# from per-project templates of pass:// references kept in ~/.config/openv/.
+#
+# This is the one script the openv plugin's skill and hooks depend on. It is
+# also linked onto PATH (~/.local/bin/openv) so it works in any terminal.
+# Subcommands land in later steps of the plan; this is the skeleton.
+set -euo pipefail
+
+OPENV_VERSION="0.1.0"
+
+usage() {
+  cat <<'USAGE'
+Usage: openv <command> [args]
+
+Commands (planned; not all implemented yet):
+  status [--check] [--json]       Profiles, vault allowlist, deps (--check: login)
+  items [--vault V]               Item titles and types in the allowed vaults
+  items --fields <vault>/<title>  One item's field names and types, never values
+  run <env> -- <cmd>...           Run a command with the profile's secrets, masked
+  export <env>                    Print export lines for eval (not inside Claude)
+  version                         Print the version
+USAGE
+}
+
+main() {
+  local cmd="${1:-help}"
+  case "$cmd" in
+    version | --version | -V) echo "openv $OPENV_VERSION" ;;
+    help | --help | -h) usage ;;
+    *)
+      echo "openv: unknown or not-yet-implemented command: $cmd" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+}
+
+main "$@"
