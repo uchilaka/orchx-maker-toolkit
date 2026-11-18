@@ -480,3 +480,103 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
     });
   });
 });
+
+// The autostart folder: set by /browse (`autostart <dir>`), read by the
+// session-start hook (`ensure --autostart`). HOME is a temp dir, so the
+// ~/project-plans fallback is the fixture's, never the real one.
+describe("browse-ctl.mjs autostart", { timeout: 60_000 }, () => {
+  let tree, state, home, base, env;
+
+  const ctl = (args, extra = {}) =>
+    spawnSync(process.execPath, [CTL, ...args], { env: { ...env, ...extra }, encoding: "utf8" });
+  const entries = () => readdirSync(state).filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(state, f), "utf8")));
+  const file = () => join(state, "autostart");
+
+  beforeEach(async () => {
+    tree = fixtureTree();
+    state = mkdtempSync(join(tmpdir(), "browse-state-"));
+    home = join(tree.root, "home");
+    mkdirSync(home);
+    base = await freeRange();
+    const hosts = join(tree.root, "hosts");
+    writeFileSync(hosts, "127.0.0.1 localhost\n");
+    env = {
+      ...process.env, HOME: home, BROWSE_HOSTS_FILE: hosts, BROWSE_STATE_DIR: state,
+      BROWSE_PORT_MIN: String(base), BROWSE_PORT_MAX: String(base + SPAN - 1),
+      BROWSE_OWNER: "", BROWSE_HOST: "", CLAUDE_CODE_SESSION_ID: "sess-a",
+    };
+  });
+
+  afterEach(() => {
+    for (const e of entries()) if (alive(e.pid)) process.kill(e.pid, "SIGKILL");
+  });
+
+  test("set, show and clear the folder", () => {
+    let r = ctl(["autostart", tree.plans]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(file(), "utf8").trim(), tree.plans);
+    assert.equal(statSync(file()).mode & 0o777, 0o600);
+    r = ctl(["autostart"]);
+    assert.equal(r.stdout.trim(), tree.plans);
+    r = ctl(["autostart", "--clear"]);
+    assert.equal(r.status, 0);
+    assert.ok(!existsSync(file()));
+    assert.match(ctl(["autostart"]).stdout, /not set/);
+  });
+
+  for (const [name, path] of [["a missing folder", () => join(tree.root, "nope")], ["a file", () => join(tree.plans, "top.md")],
+    ["HOME", () => home], ["/", () => "/"]]) {
+    test(`refuses to set ${name}`, () => {
+      const r = ctl(["autostart", path()]);
+      assert.equal(r.status, 2);
+      assert.ok(!existsSync(file()), "nothing written");
+    });
+  }
+
+  test("ensure --autostart serves the folder in the file", () => {
+    writeFileSync(file(), tree.plans + "\n");
+    const r = ctl(["ensure", "--autostart", "--shared"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /\(started\)/);
+    assert.deepEqual(entries().map((e) => e.path), [tree.plans]);
+  });
+
+  test("ensure --autostart expands a leading ~ in the file", () => {
+    mkdirSync(join(home, "notes"));
+    writeFileSync(file(), "~/notes\n");
+    const r = ctl(["ensure", "--autostart", "--shared"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(entries().map((e) => e.path), [join(home, "notes")]);
+  });
+
+  test("ensure --autostart falls back to ~/project-plans when no file is set", () => {
+    mkdirSync(join(home, "project-plans"));
+    const r = ctl(["ensure", "--autostart", "--shared"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(entries().map((e) => e.path), [join(home, "project-plans")]);
+  });
+
+  test("ensure --autostart with nothing to serve exits 0 and starts nothing", () => {
+    const r = ctl(["ensure", "--autostart", "--shared"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, "");
+    assert.match(r.stderr, /nothing to autostart/);
+    assert.deepEqual(entries(), []);
+  });
+
+  for (const [name, content] of [["relative", "plans"], ["missing", "/no/such/folder"], ["HOME", null], ["/", "/"]]) {
+    test(`ensure --autostart ignores a ${name} folder in the file, without falling back`, () => {
+      mkdirSync(join(home, "project-plans"));
+      writeFileSync(file(), (content ?? home) + "\n");
+      const r = ctl(["ensure", "--autostart", "--shared"]);
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stderr, /autostart folder/);
+      assert.deepEqual(entries(), []);
+    });
+  }
+
+  test("ensure takes a path or --autostart, not both", () => {
+    assert.equal(ctl(["ensure", "--autostart", tree.plans]).status, 2);
+  });
+});

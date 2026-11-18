@@ -1,5 +1,5 @@
 {
-  "description": "Start the ~/project-plans preview server when a Claude Code session starts, and open it in the browser",
+  "description": "Start the preview server when a Claude Code session starts, and open it in the browser. It serves the folder set with browse-ctl.mjs autostart, else ~/project-plans",
   "mkdir": ["~/project-plans", "~/pr-reviews"],
   "hooks": {
     "SessionStart": [
@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{SKILL_DIR}}/ensure-server.sh ~/project-plans --open >/dev/null 2>&1"
+            "command": "{{SKILL_DIR}}/ensure-server.sh --open >/dev/null 2>&1"
           }
         ]
       }

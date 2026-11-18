@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { htmlPage, docPage, renderIndex, notFoundPage, dirCrumbs } from "../serve-md.mjs";
 import { PLAN, fixtureTree } from "./helpers.mjs";
 
+// publish-prep: allow portability — the maintainer's checkout with Tailwind installed; the test skips when it's absent
 const TW_DIR = process.env.TAILWIND_DIR || "/opt/Developer/00-larcity-llc/cami-ritv";
 const cli = join(TW_DIR, "node_modules", "tailwindcss", "lib", "cli.js");
 const available = existsSync(cli) && existsSync(join(TW_DIR, "node_modules", "@tailwindcss", "typography"));
