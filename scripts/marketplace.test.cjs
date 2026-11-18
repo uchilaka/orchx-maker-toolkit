@@ -10,7 +10,6 @@ const path = require('path');
 const ROOT = process.env.MARKETPLACE_ROOT || path.join(__dirname, '..');
 const marketplace = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'marketplace.json'), 'utf8'));
 const plugins = marketplace.plugins;
-const SKILLS_PLUGIN = 'orchx-maker';
 
 // Every command hook in a plugin entry, flattened.
 const hooksOf = (p) => Object.entries(p.hooks || {}).flatMap(([event, matchers]) =>
@@ -41,12 +40,33 @@ test('dependencies name plugins in this marketplace', () => {
   }
 });
 
-// Every entry shares source "./", the whole repo. A hook-only plugin lists no
-// skills, so an install with both plugins has one copy of each skill (the
-// PR #26 spike: hot-reload-preview showed Skills(0) with "skills": []).
-test(`plugins other than ${SKILLS_PLUGIN} list skills: []`, () => {
-  for (const p of plugins.filter((p) => p.name !== SKILLS_PLUGIN)) {
-    assert.deepEqual(p.skills, [], `${p.name} must set "skills": []`);
+// Every entry shares source "./", the whole repo, so an entry with no `skills`
+// array ships every skill on disk. Each entry names its skills explicitly — a
+// hook-only plugin sets "skills": [] (the PR #26 spike: hot-reload-preview
+// showed Skills(0) with it) — and no skill is named twice, so an install with
+// every plugin has one copy of each skill. check-mermaid-artifact is a
+// standalone plugin, which is why this isn't "only orchx-maker lists skills".
+test('every plugin lists its skills explicitly', () => {
+  for (const p of plugins) {
+    assert.ok(Array.isArray(p.skills), `${p.name} must set "skills" (use [] for none)`);
+  }
+});
+
+test('no skill ships in two plugins', () => {
+  const seen = new Map();
+  for (const p of plugins) for (const s of p.skills || []) {
+    const key = path.normalize(path.join(p.source, s));
+    assert.ok(!seen.has(key), `${s} is in both ${seen.get(key)} and ${p.name}`);
+    seen.set(key, p.name);
+  }
+});
+
+// A plugin that exists for its hooks (hot-reload-preview) ships no skills, so
+// installing it never adds a skill the user didn't choose. LAR-394 tracks the
+// reverse check: that every real skill is listed by some plugin.
+test('hook plugins ship no skills', () => {
+  for (const p of plugins.filter((p) => p.hooks)) {
+    assert.deepEqual(p.skills, [], `${p.name} has hooks, so it must set "skills": []`);
   }
 });
 
