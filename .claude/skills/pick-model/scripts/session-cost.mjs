@@ -14,6 +14,8 @@ import { pathToFileURL } from 'node:url';
 const MODELS_URL = 'https://openrouter.ai/api/v1/models';
 const USER_MODELS_URL = 'https://openrouter.ai/api/v1/models/user';
 const USER_PAGE = 200;
+const MAX_PAGES = 50;
+const FETCH_TIMEOUT_MS = 30_000;
 
 // Session shapes, calibrated against real OpenCode sessions on this machine: a fresh
 // session starts around 40k tokens of system prompt, instructions and skill list, and
@@ -137,18 +139,24 @@ export async function loadModels({ pricesFile, apiKey, fetchImpl = fetch, warn =
     if (!res.ok) throw new Error(`${MODELS_URL} returned HTTP ${res.status}`);
     return { models: (await res.json()).data, filtered: false };
   }
-  const models = [];
-  for (let offset = 0; ; offset += USER_PAGE) {
-    const res = await fetchImpl(`${USER_MODELS_URL}?limit=${USER_PAGE}&offset=${offset}`, {
+  // Page until a page adds no new ids, rather than until a short page: a server
+  // that caps `limit` below USER_PAGE would otherwise end the list early, and one
+  // that ignores `offset` would repeat the same full page forever. MAX_PAGES is a
+  // backstop against anything else that keeps paging alive.
+  const byId = new Map();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await fetchImpl(`${USER_MODELS_URL}?limit=${USER_PAGE}&offset=${byId.size}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     // Never echo the key: the status alone says whether it was rejected.
     if (!res.ok) throw new Error(`${USER_MODELS_URL} returned HTTP ${res.status}${res.status === 401 ? ' (key rejected)' : ''}`);
-    const page = (await res.json()).data ?? [];
-    models.push(...page);
-    if (page.length < USER_PAGE) break;
+    const data = (await res.json()).data;
+    const before = byId.size;
+    for (const m of Array.isArray(data) ? data : []) if (!byId.has(m.id)) byId.set(m.id, m);
+    if (byId.size === before) return { models: [...byId.values()], filtered: true };
   }
-  return { models, filtered: true };
+  throw new Error(`${USER_MODELS_URL} still returned new models after ${MAX_PAGES} pages`);
 }
 
 const usd = (n) => `$${n.toFixed(2)}`;

@@ -107,10 +107,29 @@ test('with a key, models come from /models/user with the key as bearer, across p
   const { models, filtered } = await loadModels({ apiKey: KEY, fetchImpl: impl });
   assert.strictEqual(filtered, true);
   assert.strictEqual(models.length, 407);
-  assert.strictEqual(calls.length, 3);
+  // Paging stops on the empty page after the last one, not on the short page.
+  assert.strictEqual(calls.length, 4);
   assert.ok(calls.every((c) => c.url.startsWith('https://openrouter.ai/api/v1/models/user?')));
-  assert.deepStrictEqual(calls.map((c) => new URL(c.url).searchParams.get('offset')), ['0', '200', '400']);
+  assert.deepStrictEqual(calls.map((c) => new URL(c.url).searchParams.get('offset')), ['0', '200', '400', '407']);
   assert.strictEqual(calls[0].init.headers.Authorization, `Bearer ${KEY}`);
+});
+
+test('a server that caps pages below the requested limit still lists every model', async () => {
+  const { impl } = fakeFetch([page(100), page(100, 100), page(30, 200)]);
+  const { models } = await loadModels({ apiKey: KEY, fetchImpl: impl });
+  assert.strictEqual(models.length, 230);
+});
+
+test('a server that ignores offset ends paging instead of looping forever', async () => {
+  const same = page(200);
+  const calls = [];
+  const impl = async (url) => {
+    calls.push(url);
+    return { ok: true, status: 200, json: async () => same };
+  };
+  const { models } = await loadModels({ apiKey: KEY, fetchImpl: impl });
+  assert.strictEqual(models.length, 200);
+  assert.strictEqual(calls.length, 2);
 });
 
 test('a rejected key fails with the status, and never echoes the key', async () => {

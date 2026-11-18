@@ -66,10 +66,17 @@ the skill loads. The first line of output says which list it used:
 - `models allowed by your guardrails`: OpenRouter has filtered the list by this key's
   guardrails, privacy settings (for example, excluding providers that train on your
   data) and provider preferences. **Shortlist only from this list.**
-- `UNFILTERED: guardrails not applied`: `OPENROUTER_API_KEY` isn't set. Stop and ask
-  the user to export it, then re-run. Don't recommend from an unfiltered list. A model
-  that's on the list but blocked fails at the first request with "Model blocked by
-  guardrail" (HTTP 404), and switching away costs a cold cache.
+- `UNFILTERED: guardrails not applied`: `OPENROUTER_API_KEY` isn't set. What to do
+  depends on the harness:
+  - **OpenCode:** stop and ask the user to export it, then re-run. Don't recommend
+    from an unfiltered list. A model that's on the list but blocked fails at the first
+    request with "Model blocked by guardrail" (HTTP 404), and switching away costs a
+    cold cache.
+  - **Claude Code:** carry on. Guardrails don't apply there (see below), so the
+    unfiltered list is only a price list, and no key is needed.
+
+  To check whether the key is set, run `[ -n "$OPENROUTER_API_KEY" ] && echo set`.
+  Never print it with `echo`, `env` or `printenv`, and never ask for it in chat.
 
 Then narrow by harness:
 
