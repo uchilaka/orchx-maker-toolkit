@@ -111,7 +111,11 @@ for name in "${names[@]}"; do
     mkdir -p "$dest_skills"
 
     if [ -L "$dest" ]; then
-      if [ "$(resolve "$dest")" = "$(resolve "$src")" ]; then
+      # Compare the literal target, not the resolved one: a link that reaches this
+      # checkout through an alias (say, a renamed repo's old path kept as a symlink)
+      # resolves equal today but dangles once the alias is removed, so re-point it.
+      # Uninstall still compares resolved paths, so it removes such links.
+      if [ "$(readlink "$dest")" = "$src" ]; then
         echo "$name: already installed -> $(readlink "$dest")"
       else
         old="$(readlink "$dest")"

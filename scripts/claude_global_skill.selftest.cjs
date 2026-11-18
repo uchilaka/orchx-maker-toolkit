@@ -77,6 +77,27 @@ test('install re-points a symlink that targets somewhere else and reports the ol
   assert.match(r.stdout, /was -> \/stale\/path\/alpha/);
 });
 
+// A link that reaches the checkout through an alias (a renamed repo's old path left
+// as a symlink) works today but dangles once the alias goes, so install re-points it.
+test('install re-points a link that reaches this checkout through an alias', () => {
+  const alias = path.join(path.dirname(source), 'old-name');
+  fs.symlinkSync(source, alias);
+  fs.symlinkSync(path.join(alias, '.claude', 'skills', 'alpha'), path.join(skills, 'alpha'));
+  const r = run('install', 'alpha');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(linkOf('alpha'), srcOf('alpha'));
+  assert.match(r.stdout, /alpha: installed -> .* \(was -> .*old-name/);
+});
+
+test('uninstall removes a link that reaches this checkout through an alias', () => {
+  const alias = path.join(path.dirname(source), 'old-name');
+  fs.symlinkSync(source, alias);
+  fs.symlinkSync(path.join(alias, '.claude', 'skills', 'alpha'), path.join(skills, 'alpha'));
+  const r = run('uninstall', 'alpha');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(skills, 'alpha')));
+});
+
 test('install backs up a real directory whose content matches the source, then links', () => {
   fs.cpSync(srcOf('alpha'), path.join(skills, 'alpha'), { recursive: true });
   const r = run('install', 'alpha');
