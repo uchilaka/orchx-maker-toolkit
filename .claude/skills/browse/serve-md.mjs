@@ -47,6 +47,24 @@ function statusBadge(status) {
   return `<span class="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${cls}">${escapeHtml(status)}</span>`;
 }
 
+function mermaidBlock(code) {
+  return `<div class="not-prose my-6 overflow-x-auto rounded-xl p-4 ring-1 ring-zinc-900/10 dark:ring-white/10"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>`;
+}
+
+// Pinned like the Tailwind CDN. Loaded only on pages with a diagram, themed from the
+// `dark` class the theme script sets before first paint. Live reload is a full page
+// load, so diagrams redraw on every save; a theme toggle redraws on the next load.
+const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+
+function mermaidScript(main) {
+  if (!main.includes('<pre class="mermaid">')) return "";
+  return `<script type="module">
+import mermaid from "${MERMAID_URL}";
+mermaid.initialize({ startOnLoad: true, theme: document.documentElement.classList.contains("dark") ? "dark" : "default" });
+</script>
+`;
+}
+
 function codeBlock(lang, code) {
   return `<div data-code class="not-prose my-6 overflow-hidden rounded-xl bg-zinc-900 shadow-md ring-1 ring-zinc-900/10 dark:bg-zinc-900/70 dark:shadow-none dark:ring-white/10">
 <div class="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-4 py-1.5">
@@ -102,7 +120,9 @@ function renderMarkdown(md) {
   let html = md.replace(/\r\n/g, "\n");
 
   html = html.replace(/```([\w+-]*)[^\n]*\n([\s\S]*?)```/g, (_m, lang, code) => {
-    blocks.push(codeBlock(lang, code));
+    // Mermaid fences become a diagram element; the page shell loads mermaid only when
+    // one is present (see mermaidScript). Escaped text is what mermaid reads back.
+    blocks.push(lang === "mermaid" ? mermaidBlock(code) : codeBlock(lang, code));
     return `\n\n\u0000B${blocks.length - 1}\u0000\n\n`;
   });
   html = html.replace(/`([^`\n]+)`/g, (_m, code) => {
@@ -410,7 +430,7 @@ ${main}
   }
 })();
 </script>
-</body>
+${mermaidScript(main)}</body>
 </html>`;
 }
 

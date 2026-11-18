@@ -15,6 +15,15 @@ describe("markdown renderer", () => {
     assert.doesNotMatch(block, /<strong>|<li>|<a href/);
   });
 
+  test("a mermaid fence becomes a diagram element, escaped and untouched by markdown rules", () => {
+    const src = 'flowchart LR\n  A["**not bold**"] -->|"a < b"| B\n  - not a list';
+    const out = renderMarkdown("```mermaid\n" + src + "\n```").html;
+    const pre = out.match(/<pre class="mermaid">([\s\S]*?)<\/pre>/);
+    assert.ok(pre, "diagram element");
+    assert.equal(pre[1], src.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"));
+    assert.doesNotMatch(out, /data-code|<strong>|<li>/);
+  });
+
   test("inline code is protected from emphasis", () => {
     const out = renderMarkdown("see `~/plans/**/*.md` and `a*b*c`").html;
     assert.match(out, /~\/plans\/\*\*\/\*\.md/);
@@ -128,6 +137,12 @@ describe("markdown renderer, untrusted input", () => {
 
 describe("page shell", () => {
   const page = htmlPage("T", "<p>x</p>", [{ label: "plans", href: "/" }, { label: "doc.md" }]);
+
+  test("mermaid loads, pinned, only on pages that hold a diagram", () => {
+    const withDiagram = htmlPage("T", renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```").html);
+    assert.match(withDiagram, /cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.esm\.min\.mjs/);
+    assert.doesNotMatch(page, /mermaid/);
+  });
 
   test("no inline CSS: Tailwind CDN with typography, dark mode by class", () => {
     assert.doesNotMatch(page, /<style/);
