@@ -1,6 +1,6 @@
 ---
 name: check-mermaid-artifact
-description: Check a markdown artifact's diagrams before it is written anywhere — flag ASCII diagrams that should be mermaid, and export mermaid to JPG for any third-party destination not verified to render it (Linear, Jira, Notion, Google Docs, Slack, email). Use when the user says "/check-mermaid-artifact", "check the diagrams", "export the mermaid", "mermaid to jpg", or before posting a plan, spec, ticket or doc containing diagrams to an outside platform. Not for drawing new diagrams.
+description: Check a markdown artifact's diagrams before it is written anywhere — flag ASCII diagrams that should be mermaid, and export mermaid to PNG for any third-party destination not verified to render it (Linear, Jira, Notion, Google Docs, Slack, email). Use when the user says "/check-mermaid-artifact", "check the diagrams", "export the mermaid", "mermaid to png", "mermaid to image", or before posting a plan, spec, ticket or doc containing diagrams to an outside platform. Not for drawing new diagrams.
 ---
 
 # /check-mermaid-artifact — diagrams that survive the trip
@@ -9,7 +9,7 @@ Two rules this enforces:
 
 1. **Diagrams are mermaid, never ASCII**, in any markdown file. ASCII is only for replies
    in the terminal.
-2. **A mermaid diagram bound for a third-party document is exported to JPG**, unless that
+2. **A mermaid diagram bound for a third-party document is exported to PNG**, unless that
    target is listed in `${CLAUDE_SKILL_DIR}/verified-targets.txt` as rendering mermaid
    natively. Local files keep the fence alone.
 
@@ -31,12 +31,12 @@ Two rules this enforces:
    python3 "${CLAUDE_SKILL_DIR}/scripts/mermaid-export.py" <file.md> --out <dir>
    ```
 
-   It prints one JPG path per diagram (`<stem>-diagram-N.jpg`, in document order). It
+   It prints one PNG path per diagram (`<stem>-diagram-N.png`, in document order). It
    writes all of them or none, so a syntax error leaves no partial set. It needs `npx`
    (fetches `@mermaid-js/mermaid-cli`, pinned) and Google Chrome; set `MERMAID_CHROME`
-   to use another browser binary. JPEG conversion uses macOS `sips`.
+   to use another browser binary.
 
-3. **Publish.** Upload each JPG through the destination's own upload path (for Linear,
+3. **Publish.** Upload each PNG through the destination's own upload path (for Linear,
    `prepare_file_upload`) and embed it where the fence was. Keep the mermaid source
    beside each image in a collapsible section, so the diagram stays editable.
 

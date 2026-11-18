@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Export mermaid diagrams to JPEG for destinations that can't render mermaid.
+"""Export mermaid diagrams to PNG for destinations that can't render mermaid.
 
 Usage:
   mermaid-export.py <file.mmd | file.md> [--out DIR]
 
-A .mmd file becomes <stem>.jpg. A markdown file gives one <stem>-diagram-N.jpg per
+A .mmd file becomes <stem>.png. A markdown file gives one <stem>-diagram-N.png per
 ```mermaid fence, numbered in document order. Output goes beside the source unless
 --out is given. Prints one output path per line.
 
@@ -12,9 +12,13 @@ All-or-nothing: every diagram renders into a temp dir first and only moves into 
 once all of them succeed, so a syntax error never leaves a partial set behind.
 
 Rendering uses mermaid-cli (pinned, via npx) driving the local Google Chrome, so
-puppeteer never downloads its own browser. mermaid-cli has no JPEG output, so it writes
-a PNG on a white background (JPEG has no transparency) and macOS `sips` converts it.
-Set MERMAID_CHROME to use a different browser binary.
+puppeteer never downloads its own browser. Set MERMAID_CHROME to use a different browser
+binary.
+
+PNG, not JPEG: every export target accepts PNG, mermaid-cli writes it directly, and it
+keeps text and thin lines crisp where JPEG compression blurs them. JPEG would need a
+platform-specific converter (macOS `sips`) for a worse image. The background is forced
+white so dark text stays readable in a destination's dark mode.
 """
 
 import argparse
@@ -50,13 +54,6 @@ def render(source, png, workdir):
     )
 
 
-def to_jpeg(png, jpg):
-    subprocess.run(
-        ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "90", png, "--out", jpg],
-        check=True, capture_output=True, text=True,
-    )
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("source")
@@ -70,13 +67,13 @@ def main(argv=None):
         text = f.read()
 
     if ext == ".mmd":
-        jobs = [(text, f"{stem}.jpg")]
+        jobs = [(text, f"{stem}.png")]
     else:
         blocks = extract_blocks(text)
         if not blocks:
             print(f"mermaid-export: no mermaid fences in {src}", file=sys.stderr)
             return 1
-        jobs = [(b, f"{stem}-diagram-{i}.jpg") for i, b in enumerate(blocks, 1)]
+        jobs = [(b, f"{stem}-diagram-{i}.png") for i, b in enumerate(blocks, 1)]
 
     with tempfile.TemporaryDirectory() as work:
         for i, (source, name) in enumerate(jobs):
@@ -86,12 +83,11 @@ def main(argv=None):
             except subprocess.CalledProcessError as e:
                 print(f"mermaid-export: {name} failed to render:\n{e.stderr.strip()}", file=sys.stderr)
                 return 2
-            to_jpeg(png, os.path.join(work, name))
         os.makedirs(outdir, exist_ok=True)
         outputs = []
-        for _source, name in jobs:
+        for i, (_source, name) in enumerate(jobs):
             dest = os.path.join(outdir, name)
-            shutil.move(os.path.join(work, name), dest)
+            shutil.move(os.path.join(work, f"d{i}.png"), dest)
             outputs.append(dest)
 
     print("\n".join(outputs))

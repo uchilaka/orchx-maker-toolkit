@@ -20,7 +20,7 @@
     {
       "name": "check-mermaid-artifact",
       "source": "./",
-      "description": "Flags ASCII diagrams and exports mermaid to JPG for destinations that don't render it",
+      "description": "Flags ASCII diagrams and exports mermaid to PNG for destinations that don't render it",
       "skills": [
         "./.claude/skills/check-mermaid-artifact"
       ]
