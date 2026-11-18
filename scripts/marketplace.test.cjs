@@ -61,6 +61,15 @@ test('no skill ships in two plugins', () => {
   }
 });
 
+// A plugin that exists for its hooks (hot-reload-preview) ships no skills, so
+// installing it never adds a skill the user didn't choose. LAR-394 tracks the
+// reverse check: that every real skill is listed by some plugin.
+test('hook plugins ship no skills', () => {
+  for (const p of plugins.filter((p) => p.hooks)) {
+    assert.deepEqual(p.skills, [], `${p.name} has hooks, so it must set "skills": []`);
+  }
+});
+
 test('every hook script exists and is executable', () => {
   for (const p of plugins) for (const h of hooksOf(p)) {
     const script = scriptOf(p, h.command);

@@ -25,6 +25,9 @@ Two rules this enforces:
    - `ascii-diagram: line L` → redraw that block as a mermaid fence, then re-run.
    - `target: NAME (unverified): export N diagram(s)` → go to step 2.
 
+   Exit 2 is an error (the file can't be read, or a `verified-targets.txt` line is
+   malformed). Fix what stderr names; it is not a list of work.
+
 2. **Export** (unverified targets only):
 
    ```bash
@@ -32,9 +35,11 @@ Two rules this enforces:
    ```
 
    It prints one PNG path per diagram (`<stem>-diagram-N.png`, in document order). It
-   writes all of them or none, so a syntax error leaves no partial set. It needs `npx`
-   (fetches `@mermaid-js/mermaid-cli`, pinned) and Google Chrome; set `MERMAID_CHROME`
-   to use another browser binary.
+   writes all of them or none, so a syntax error leaves no partial set (exit 2, naming
+   the diagram). It finds the same fences the check counted, indented or `~~~` ones
+   included. It needs `npx`, which fetches `@mermaid-js/mermaid-cli` (its own version is
+   pinned, its dependencies aren't), and Chrome or Chromium: Google Chrome's macOS app,
+   or `google-chrome` or `chromium` on PATH. Set `MERMAID_CHROME` to use another binary.
 
 3. **Publish.** Upload each PNG through the destination's own upload path (for Linear,
    `prepare_file_upload`) and embed it where the fence was. Keep the mermaid source

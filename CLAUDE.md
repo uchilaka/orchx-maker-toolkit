@@ -14,7 +14,7 @@ Your actual day-to-day Claude Code skill catalog (`bootstrap-worktree`, `summon-
 ## Working in this repo
 
 - Changes to Gemini skill behavior: edit `.gemini/skills/<name>/SKILL.md`, then `mise run build:gemini` and `mise run test` (validates every skill via the `gemini-cli` Homebrew validator).
-- Changes to the repo-local Claude skills (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`): edit `.claude/skills/<name>/` directly, then `mise run build:claude`. That runs `claude plugin validate` and fails on any error or warning, except the one known warning that `CLAUDE.md` sits at the plugin root (`scripts/validate_plugin.cjs` says why).
+- Changes to the repo-local Claude skills (the real ones in `.claude/skills/`, listed above): edit `.claude/skills/<name>/` directly, then `mise run build:claude`. That runs `claude plugin validate` and fails on any error or warning, except the one known warning that `CLAUDE.md` sits at the plugin root (`scripts/validate_plugin.cjs` says why).
 - Publishing a new Claude-native skill takes three edits: the skill directory, a `!` allowlist line in `.gitignore`, and an entry in `.claude-plugin/marketplace.json` → `plugins[0].skills`. Miss the last one and the skill validates but never ships.
 - Before a release, `mise run publish-prep` checks everything that ships (secrets, personal paths, frontmatter, undeclared dependencies) and exits 1 on a `high` finding. `/release` runs it as a gate. The checker is bundled in the skill at `.gemini/skills/publish-prep/scripts/publish_prep.cjs`, so the packaged `.skill` works on its own. What counts as personal for this repo lives in `.publish-prep.json`. A deliberate exception is an inline `publish-prep: allow <check> — <reason>` comment, and the reason is required. `mise run test` runs the checker's self-test (`scripts/publish_prep.selftest.cjs`).
 - The version lives in four places, and `/release` keeps them in step: `GEMINI.md`, `.claude-plugin/plugin.json` (`plugin.json` wins over any `version` on the marketplace entry, so the entry doesn't carry one), the `CHANGELOG.md` heading, and the git tag.
@@ -44,7 +44,7 @@ source:
 
 - `mise run mount:claude` — symlinks each `.gemini/skills/<name>` into
   `.claude/skills/<name>`. Real, Claude-native skills already in `.claude/skills/`
-  (currently `patch-my-hosts`, `llm-wikify`, `browser-test-assist` and `browse`) are left untouched — the task
+  (the ones listed under "Directory scope") are left untouched — the task
   skips any target that exists and isn't itself a symlink.
 - `mise run unmount:claude` — removes only the symlinks the mount created.
 - `mise run test:claude` — first runs `scripts/validate_claude_skills.selftest.cjs`, which
