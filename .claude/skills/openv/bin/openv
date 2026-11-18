@@ -18,7 +18,7 @@
 # same name.
 set -euo pipefail
 
-OPENV_VERSION="0.2.0" # 0.1.0 skeleton (S2); 0.2.0 adds status (S3)
+OPENV_VERSION="0.3.0" # 0.1.0 skeleton; 0.2.0 status (S3); 0.3.0 run + export (S5)
 CONFIG_DIR="${OPENV_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/openv}"
 LINK_PATH="${OPENV_LINK_PATH:-$HOME/.local/bin/openv}"
 
@@ -28,13 +28,13 @@ Usage: openv <command> [args]
 
 Commands:
   status [--check] [--json]       Profiles, vault allowlist, deps (--check: login)
+  run <env> -- <cmd>...           Run a command with the profile's secrets, masked
+  export <env>                    Print export lines for eval (terminal only, not agents)
   version                         Print the version
 
 Planned (not implemented yet):
   items [--vault V]               Item titles and types in the allowed vaults
   items --fields <vault>/<title>  One item's field names and types, never values
-  run <env> -- <cmd>...           Run a command with the profile's secrets, masked
-  export <env>                    Print export lines for eval (not inside an agent)
 USAGE
 }
 
@@ -117,6 +117,27 @@ profile_vars() {
       *) printf '%s\tliteral\t\n' "$key" ;;
     esac
   done <"$1"
+}
+
+# Resolves <env> to a profile file: project first, then global. Rejects path
+# traversal so <env> stays inside $CONFIG_DIR.
+resolve_profile() {
+  local env="$1" project p
+  case "$env" in
+    '' | */* | *..*) die "invalid profile name: $env" ;;
+  esac
+  project="$(project_name)"
+  if [ -n "$project" ]; then
+    p="$CONFIG_DIR/$project/$env.env"
+    if [ -f "$p" ]; then echo "$p"; return 0; fi
+  fi
+  p="$CONFIG_DIR/global/$env.env"
+  if [ -f "$p" ]; then echo "$p"; return 0; fi
+  if [ -n "$project" ]; then
+    die "profile \"$env\" not found (looked in $CONFIG_DIR/$project/$env.env and $CONFIG_DIR/global/$env.env; run 'openv status')"
+  else
+    die "profile \"$env\" not found (looked in $CONFIG_DIR/global/$env.env; run 'openv status')"
+  fi
 }
 
 # --- status ---------------------------------------------------------------------
@@ -254,11 +275,77 @@ status_json() {
   printf '}\n'
 }
 
+# --- run and export -----------------------------------------------------------
+
+require_pass_cli() {
+  [ -n "$(dep_path pass-cli)" ] || die "pass-cli not found (brew install protonpass/tap/pass-cli)"
+}
+
+cmd_run() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: openv run <env> -- <cmd>..." >&2
+    exit 64
+  fi
+  local env="$1"
+  shift
+  if [ "${1:-}" != "--" ] || [ $# -lt 2 ]; then
+    echo "Usage: openv run <env> -- <cmd>..." >&2
+    exit 64
+  fi
+  shift
+  local profile
+  profile="$(resolve_profile "$env")"
+  require_pass_cli
+  exec pass-cli run --env-file "$profile" -- "$@"
+}
+
+# Refuses under any known agent env var OR without a TTY on stdin (covers
+# unknown agents, since agent Bash tools don't attach a terminal to stdin, while
+# `eval "$(openv export dev)"` in a user's interactive terminal keeps stdin as a TTY).
+cmd_export() {
+  if [ -n "${CLAUDECODE:-}" ] || [ -n "${OPENCODE_SESSION_ID:-}" ]; then
+    die "export is disabled inside agent sessions; use 'openv run <env> -- <cmd>' instead"
+  fi
+  if [ ! -t 0 ]; then
+    die "export requires an interactive terminal on stdin; use 'openv run <env> -- <cmd>' instead"
+  fi
+  if [ $# -ne 1 ]; then
+    echo "Usage: openv export <env>" >&2
+    exit 64
+  fi
+  local env="$1" profile var kind _ seen=" "
+  local -a keys=()
+  profile="$(resolve_profile "$env")"
+  while IFS=$'\t' read -r var kind _; do
+    case "$var" in
+      '' | [0-9]* | *[!A-Za-z0-9_]*) continue ;;
+    esac
+    case "$seen" in *" $var "*) continue ;; esac
+    seen="$seen$var "
+    keys+=("$var")
+  done < <(profile_vars "$profile")
+  [ "${#keys[@]}" -gt 0 ] || return 0
+  require_pass_cli
+  # Resolved via pass-cli's own dotenv + pass:// parser (no second parser).
+  # Values are single-quoted with zero single quotes inside the -c script body.
+  exec pass-cli run --no-masking --env-file "$profile" -- "$BASH" -c '
+    qt=$(printf "\047")
+    rep="${qt}\\${qt}${qt}"
+    for k in "$@"; do
+      eval "v=\${$k-}"
+      q="${v//$qt/$rep}"
+      printf "export %s=%s%s%s\n" "$k" "$qt" "$q" "$qt"
+    done
+  ' _ "${keys[@]}"
+}
+
 main() {
   local cmd="${1:-help}"
   [ $# -gt 0 ] && shift
   case "$cmd" in
     status) cmd_status "$@" ;;
+    run) cmd_run "$@" ;;
+    export) cmd_export "$@" ;;
     version | --version | -V) echo "openv $OPENV_VERSION" ;;
     help | --help | -h) usage ;;
     *)

@@ -9,8 +9,8 @@ The script is `${CLAUDE_SKILL_DIR}/bin/openv`, also linked onto PATH as `openv`.
 OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the
 skill loads.
 
-> In progress (plan `OPENV_PLUGIN.md`). `status` works now. `run`, `export` and the
-> `mise run install:openv` link come next, then `items` and the template builder.
+> In progress (plan `OPENV_PLUGIN.md`). `status`, `run` and `export` work now.
+> `mise run install:openv` comes next, then `items`, hooks and the template builder.
 
 ## The rule this skill exists for
 
@@ -54,8 +54,9 @@ LOG_LEVEL=debug
 ```
 
 Lines whose value starts with `pass://` are references. Any other value is a literal,
-passed through as written. Use share and item IDs rather than names, so renaming a vault
-or item can't silently break a reference.
+passed through as written. Write `KEY=value` with no `export ` prefix (`pass-cli run`
+skips lines starting with `export `). Use share and item IDs rather than names, so
+renaming a vault or item can't silently break a reference.
 
 ## Show the current setup
 
@@ -74,3 +75,32 @@ dependencies, and whether `~/.local/bin/openv` links to this script.
 
 When showing this to the user, present the profiles as a short table, one row per
 variable.
+
+## Run a command with secrets
+
+```bash
+openv run <env> -- <cmd>...
+```
+
+Resolves `<env>` (project profile first, then `global/`), injects the resolved values
+into `<cmd>` only, and masks secret strings on stdout and stderr (`<concealed by Proton
+Pass>`). Returns `<cmd>`'s exit code.
+
+Masking is string-match only on stdout and stderr: a command that encodes a secret (for
+example with `base64`) or writes it to a file bypasses masking.
+
+## Load secrets into your own terminal
+
+```bash
+eval "$(openv export <env>)"
+```
+
+Works in both `zsh` and `bash`, and safely quotes spaces, quotes, `$` and newlines.
+Refuses to run under `CLAUDECODE`, `OPENCODE_SESSION_ID`, or without a TTY on stdin
+(which covers other agent harnesses).
+
+Optional shell helper for `~/.zshrc` or `~/.bashrc`:
+
+```sh
+openv-load() { eval "$(openv export "$1")"; }
+```
