@@ -54,8 +54,8 @@ run = "bash scripts/claude-global-skill.sh uninstall"
 
 # TODO(LAR-465): discover the check-mermaid-artifact tests rather than naming each file.
 [tasks."test:claude"]
-description = "Self-test the validator, the global-install script, the marketplace entries, /browse, /check-mermaid-artifact and /pr-triage, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
-run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs scripts/marketplace.test.cjs '.claude/skills/browse/test/*.test.mjs' scripts/pr_triage.test.cjs || exit 1; python3 .claude/skills/check-mermaid-artifact/test/test_check_artifact.py && python3 .claude/skills/check-mermaid-artifact/test/test_mermaid_export.py || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
+description = "Self-test the validator, the global-install script, the marketplace entries, /browse, /check-mermaid-artifact, /pr-triage and openv, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
+run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs scripts/marketplace.test.cjs '.claude/skills/browse/test/*.test.mjs' '.claude/skills/openv/test/*.test.mjs' scripts/pr_triage.test.cjs || exit 1; python3 .claude/skills/check-mermaid-artifact/test/test_check_artifact.py && python3 .claude/skills/check-mermaid-artifact/test/test_mermaid_export.py || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
 
 [hooks]
 # `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is

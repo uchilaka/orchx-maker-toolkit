@@ -1,31 +1,264 @@
 #!/usr/bin/env bash
 # openv — load Proton Pass secrets into a command's environment on demand,
-# from per-project templates of pass:// references kept in ~/.config/openv/.
+# from templates of pass:// references kept in ~/.config/openv/.
 #
-# This is the one script the openv plugin's skill and hooks depend on. It is
-# also linked onto PATH (~/.local/bin/openv) so it works in any terminal.
-# Subcommands land in later steps of the plan; this is the skeleton.
+# This is the one script the openv skill and its harness adapters depend on. It
+# is also linked onto PATH (~/.local/bin/openv) so it works in any terminal.
+# It reads nothing harness-specific except the agent env vars `export` refuses
+# under (S5). Bash 3.2 compatible (macOS /bin/bash): no associative arrays, no
+# mapfile.
+#
+# Config layout (all optional):
+#   ~/.config/openv/vaults               global vault allowlist, one name per line
+#   ~/.config/openv/global/<env>.env     profiles usable from any directory
+#   ~/.config/openv/<project>/<env>.env  profiles for one git project
+#   ~/.config/openv/<project>/vaults     replaces the global allowlist there
+# <project> is the main checkout's directory name, so every worktree of a repo
+# shares one set of profiles. A project profile wins over a global one of the
+# same name.
 set -euo pipefail
 
-OPENV_VERSION="0.1.0"
+OPENV_VERSION="0.2.0" # 0.1.0 skeleton (S2); 0.2.0 adds status (S3)
+CONFIG_DIR="${OPENV_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/openv}"
+LINK_PATH="${OPENV_LINK_PATH:-$HOME/.local/bin/openv}"
 
 usage() {
   cat <<'USAGE'
 Usage: openv <command> [args]
 
-Commands (planned; not all implemented yet):
+Commands:
   status [--check] [--json]       Profiles, vault allowlist, deps (--check: login)
+  version                         Print the version
+
+Planned (not implemented yet):
   items [--vault V]               Item titles and types in the allowed vaults
   items --fields <vault>/<title>  One item's field names and types, never values
   run <env> -- <cmd>...           Run a command with the profile's secrets, masked
-  export <env>                    Print export lines for eval (not inside Claude)
-  version                         Print the version
+  export <env>                    Print export lines for eval (not inside an agent)
 USAGE
+}
+
+die() {
+  echo "openv: $*" >&2
+  exit 1
+}
+
+# --- project and config paths -------------------------------------------------
+
+# The main checkout's directory name, or empty outside a git repo. One git call.
+# --git-common-dir is <main>/.git from the main checkout and every worktree, so
+# worktrees resolve to the same project. A bare-repo layout falls back to the
+# common dir's own name.
+project_name() {
+  local common
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  case "$common" in
+    */.git) basename "$(dirname "$common")" ;;
+    *) basename "$common" .git ;;
+  esac
+}
+
+# The allowlist in force: the project's file replaces the global one when it
+# exists, so a project can narrow (or widen) access without editing the global.
+vaults_file() {
+  local project="$1"
+  if [ -n "$project" ] && [ -f "$CONFIG_DIR/$project/vaults" ]; then
+    echo "$CONFIG_DIR/$project/vaults"
+  elif [ -f "$CONFIG_DIR/vaults" ]; then
+    echo "$CONFIG_DIR/vaults"
+  fi
+}
+
+# Non-blank, non-comment lines, trimmed.
+read_list() {
+  [ -n "$1" ] && [ -f "$1" ] || return 0
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1" | grep -v '^$' || true
+}
+
+# Prints "<env>\t<scope>\t<path>" per profile. Project profiles first, then
+# global ones whose env name the project doesn't already define.
+list_profiles() {
+  local project="$1" f env seen=" "
+  if [ -n "$project" ] && [ -d "$CONFIG_DIR/$project" ]; then
+    for f in "$CONFIG_DIR/$project"/*.env; do
+      [ -f "$f" ] || continue
+      env="$(basename "$f" .env)"
+      seen="$seen$env "
+      printf '%s\tproject\t%s\n' "$env" "$f"
+    done
+  fi
+  if [ -d "$CONFIG_DIR/global" ]; then
+    for f in "$CONFIG_DIR/global"/*.env; do
+      [ -f "$f" ] || continue
+      env="$(basename "$f" .env)"
+      case "$seen" in *" $env "*) continue ;; esac
+      printf '%s\tglobal\t%s\n' "$env" "$f"
+    done
+  fi
+}
+
+# Prints "<var>\t<kind>\t<ref>" per assignment in a dotenv profile. <kind> is
+# `ref` for a pass:// reference (printed: a reference names where a secret
+# lives, not what it is) or `literal` (value never printed: a literal can be a
+# secret pasted in by mistake).
+profile_vars() {
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in '' | '#'*) continue ;; esac
+    line="${line#export }"
+    case "$line" in *=*) ;; *) continue ;; esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+    case "$value" in
+      pass://*) printf '%s\tref\t%s\n' "$key" "$value" ;;
+      *) printf '%s\tliteral\t\n' "$key" ;;
+    esac
+  done <"$1"
+}
+
+# --- status ---------------------------------------------------------------------
+
+json_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"
+  printf '"%s"' "$s"
+}
+
+dep_path() { command -v "$1" 2>/dev/null || true; }
+
+# Follows a symlink chain to a physical path. macOS 3.2-era userland has no
+# `readlink -f`, hence the loop. Prints nothing for a dangling link.
+resolve() {
+  local p="$1" t
+  while [ -L "$p" ]; do
+    t="$(readlink "$p")"
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+  done
+  [ -e "$p" ] || return 0
+  echo "$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")"
+}
+
+# "linked" when LINK_PATH resolves to this script, "foreign" when it's some
+# other file, "dangling" for a broken link, "missing" when absent.
+link_state() {
+  local self target
+  self="$(resolve "${BASH_SOURCE[0]}")"
+  if [ ! -L "$LINK_PATH" ] && [ ! -e "$LINK_PATH" ]; then echo missing; return; fi
+  target="$(resolve "$LINK_PATH")"
+  if [ -z "$target" ]; then echo dangling
+  elif [ "$target" = "$self" ]; then echo linked
+  else echo foreign
+  fi
+}
+
+on_path() {
+  case ":$PATH:" in *":$(dirname "$LINK_PATH"):"*) echo yes ;; *) echo no ;; esac
+}
+
+# The one network call in status, and only under --check: the exit code of a
+# metadata listing. Its output is discarded, so nothing it prints can leak.
+login_state() {
+  [ -n "$(dep_path pass-cli)" ] || { echo unavailable; return; }
+  if pass-cli vault list >/dev/null 2>&1; then echo yes; else echo no; fi
+}
+
+cmd_status() {
+  local check=0 json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --check) check=1 ;;
+      --json) json=1 ;;
+      *) die "status: unknown option $1" ;;
+    esac
+    shift
+  done
+
+  local project vfile profiles login="" link
+  project="$(project_name)"
+  vfile="$(vaults_file "$project")"
+  profiles="$(list_profiles "$project")"
+  link="$(link_state)"
+  [ "$check" -eq 1 ] && login="$(login_state)"
+
+  if [ "$json" -eq 1 ]; then
+    status_json "$project" "$vfile" "$profiles" "$login" "$link"
+  else
+    status_text "$project" "$vfile" "$profiles" "$login" "$link"
+  fi
+}
+
+status_text() {
+  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref
+  echo "config:   $CONFIG_DIR"
+  echo "project:  ${project:-(none: not in a git repo, global profiles only)}"
+  if [ "$project" = global ]; then
+    echo "warning:  a project named \"global\" shares ~/.config/openv/global with the global scope"
+  fi
+  if [ -n "$vfile" ]; then
+    echo "vaults:   $(read_list "$vfile" | paste -sd, - | sed 's/,/, /g')  ($vfile)"
+  else
+    echo "vaults:   (none: create $CONFIG_DIR/vaults, one vault name per line)"
+  fi
+  if [ -z "$profiles" ]; then
+    echo "profiles: (none)"
+  else
+    echo "profiles:"
+    while IFS=$'\t' read -r env scope path; do
+      echo "  $env  [$scope]  $path"
+      while IFS=$'\t' read -r var kind ref; do
+        if [ "$kind" = ref ]; then echo "    $var -> $ref"; else echo "    $var = (literal)"; fi
+      done < <(profile_vars "$path")
+    done <<<"$profiles"
+  fi
+  local pass jq
+  pass="$(dep_path pass-cli)"; jq="$(dep_path jq)"
+  echo "deps:     pass-cli ${pass:-(missing: brew install protonpass/tap/pass-cli)}"
+  echo "          jq ${jq:-(missing: brew install jq; only \`items\` needs it)}"
+  echo "link:     $LINK_PATH: $link$([ "$link" = linked ] && [ "$(on_path)" = no ] && echo " (but $(dirname "$LINK_PATH") is not on PATH)")"
+  [ -z "$login" ] || echo "login:    $login"
+}
+
+status_json() {
+  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref first sep
+  printf '{"config":%s,"project":%s,' "$(json_str "$CONFIG_DIR")" "$( [ -n "$project" ] && json_str "$project" || echo null)"
+  printf '"vaults":{"file":%s,"names":[' "$( [ -n "$vfile" ] && json_str "$vfile" || echo null)"
+  sep=""
+  while IFS= read -r var; do
+    [ -n "$var" ] || continue
+    printf '%s%s' "$sep" "$(json_str "$var")"; sep=","
+  done < <(read_list "$vfile")
+  printf ']},"profiles":['
+  first=1
+  if [ -n "$profiles" ]; then
+    while IFS=$'\t' read -r env scope path; do
+      [ "$first" -eq 1 ] || printf ','
+      first=0
+      printf '{"env":%s,"scope":%s,"path":%s,"vars":[' "$(json_str "$env")" "$(json_str "$scope")" "$(json_str "$path")"
+      sep=""
+      while IFS=$'\t' read -r var kind ref; do
+        printf '%s{"name":%s,"kind":%s,"ref":%s}' "$sep" "$(json_str "$var")" "$(json_str "$kind")" "$( [ "$kind" = ref ] && json_str "$ref" || echo null)"
+        sep=","
+      done < <(profile_vars "$path")
+      printf ']}'
+    done <<<"$profiles"
+  fi
+  printf '],"deps":{"pass-cli":%s,"jq":%s},' \
+    "$( [ -n "$(dep_path pass-cli)" ] && json_str "$(dep_path pass-cli)" || echo null)" \
+    "$( [ -n "$(dep_path jq)" ] && json_str "$(dep_path jq)" || echo null)"
+  printf '"link":{"path":%s,"state":%s,"on_path":%s}' "$(json_str "$LINK_PATH")" "$(json_str "$link")" "$( [ "$(on_path)" = yes ] && echo true || echo false)"
+  [ -z "$login" ] || printf ',"login":%s' "$(json_str "$login")"
+  printf '}\n'
 }
 
 main() {
   local cmd="${1:-help}"
+  [ $# -gt 0 ] && shift
   case "$cmd" in
+    status) cmd_status "$@" ;;
     version | --version | -V) echo "openv $OPENV_VERSION" ;;
     help | --help | -h) usage ;;
     *)
