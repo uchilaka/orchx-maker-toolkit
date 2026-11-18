@@ -1,0 +1,49 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "created": 1790094732,
+      "context_length": 1000000,
+      "supported_parameters": ["tools", "reasoning"],
+      "pricing": { "prompt": "0.000004", "completion": "0.00002", "input_cache_read": "0.0000002", "input_cache_write": "0.000005" }
+    },
+    {
+      "id": "openai/gpt-6.2-sol",
+      "created": 1794938371,
+      "context_length": 1050000,
+      "supported_parameters": ["tools", "reasoning"],
+      "pricing": {
+        "prompt": "0.000002", "completion": "0.00001", "input_cache_read": "0.0000001", "input_cache_write": "0.0000025",
+        "overrides": [{ "min_prompt_tokens": 272000, "prompt": "0.000004", "completion": "0.000015", "input_cache_read": "0.0000002", "input_cache_write": "0.000005" }]
+      }
+    },
+    {
+      "id": "openai/gpt-6.2-sol:batch",
+      "created": 1794938371,
+      "context_length": 1050000,
+      "supported_parameters": ["tools"],
+      "pricing": { "prompt": "0.000001", "completion": "0.000005", "input_cache_read": "0.00000005" }
+    },
+    {
+      "id": "example/no-cache",
+      "created": 1794000000,
+      "context_length": 128000,
+      "supported_parameters": ["tools"],
+      "pricing": { "prompt": "0.000001", "completion": "0.000002" }
+    },
+    {
+      "id": "example/no-tools",
+      "created": 1794000000,
+      "context_length": 128000,
+      "supported_parameters": ["temperature"],
+      "pricing": { "prompt": "0.000001", "completion": "0.000002" }
+    },
+    {
+      "id": "openrouter/auto",
+      "created": 1793885889,
+      "context_length": 2000000,
+      "supported_parameters": ["tools"],
+      "pricing": { "prompt": "-1", "completion": "-1" }
+    }
+  ]
+}
