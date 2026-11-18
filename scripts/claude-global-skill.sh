@@ -3,8 +3,13 @@
 # user-scope catalog at ~/.claude/skills/, as symlinks — so the repo stays the one source
 # file per skill and edits here take effect everywhere.
 #
-#   claude-global-skill.sh install   [name...]   # default: every repo-local skill
+#   claude-global-skill.sh install   [--with-hooks|--no-hooks] [name...]   # default: every repo-local skill
 #   claude-global-skill.sh uninstall [name...]
+#
+# A skill can ship optional hooks in install/hooks.json (see claude_skill_hooks.cjs).
+# install asks before adding them to ~/.claude/settings.json; --with-hooks or --no-hooks
+# answers up front. With no terminal to ask and no flag, they're not added. uninstall
+# removes exactly the hooks install would add, nothing else.
 #
 # Links point at the MAIN checkout, never a worktree: a link into a worktree dangles as
 # soon as that worktree is pruned. So a skill must be merged to main before it installs.
@@ -17,11 +22,25 @@
 #   - uninstall only removes a symlink that resolves into the source checkout.
 set -euo pipefail
 
-usage() { echo "usage: $(basename "$0") install|uninstall [skill-name...]" >&2; exit 2; }
+usage() { echo "usage: $(basename "$0") install [--with-hooks|--no-hooks] [skill-name...] | uninstall [skill-name...]" >&2; exit 2; }
 
 [ $# -ge 1 ] || usage
 action="$1"; shift
 case "$action" in install|uninstall) ;; *) usage ;; esac
+
+hooks_mode=ask
+names=()
+for arg in "$@"; do
+  case "$arg" in
+    --with-hooks|--no-hooks)
+      [ "$action" = install ] || usage
+      want="${arg#--}"; want="${want%%-hooks}"   # with | no
+      [ "$hooks_mode" = ask ] || [ "$hooks_mode" = "$want" ] || usage
+      hooks_mode="$want" ;;
+    -*) usage ;;
+    *) names+=("$arg") ;;
+  esac
+done
 
 if [ -n "${SKILL_SOURCE_ROOT:-}" ]; then
   src_root="$SKILL_SOURCE_ROOT"
@@ -36,7 +55,6 @@ backups="$HOME/.claude/skill-backups"
 # Physical path of an existing directory (or symlink to one); empty if it doesn't resolve.
 resolve() { (cd "$1" 2>/dev/null && pwd -P) || true; }
 
-names=("$@")
 if [ ${#names[@]} -eq 0 ]; then
   # Real directories only: symlinks here are mount:claude mounts of Gemini skills.
   for d in "$src_skills"/*/; do
@@ -47,6 +65,40 @@ fi
 
 status=0
 fail() { echo "$1" >&2; status=1; }
+
+hooks_helper="$(cd "$(dirname "$0")" && pwd)/claude_skill_hooks.cjs"
+
+# $1 name, $2 source dir, $3 installed dir. Hook commands name the installed dir,
+# so they keep working when the checkout moves.
+install_hooks() {
+  local name="$1" frag="$2/install/hooks.json" dest="$3" add=no reply=
+  [ -f "$frag" ] || return 0
+  if node "$hooks_helper" has "$frag" "$dest" >/dev/null 2>&1; then
+    echo "$name: optional hooks already in ~/.claude/settings.json"; return 0
+  fi
+  case "$hooks_mode" in
+    with) add=yes ;;
+    no) echo "$name: optional hooks skipped (--no-hooks)"; return 0 ;;
+    ask)
+      if [ -t 0 ] && [ -t 1 ]; then
+        echo "$name: optional hooks: $(node "$hooks_helper" describe "$frag")"
+        read -r -p "  Add them to ~/.claude/settings.json? [y/N] " reply || reply=
+        case "$reply" in [yY]|[yY][eE][sS]) add=yes ;; esac
+      fi ;;
+  esac
+  if [ "$add" = yes ]; then
+    echo "$name: adding optional hooks"
+    node "$hooks_helper" add "$frag" "$dest" || fail "$name: its hooks were not added"
+  else
+    echo "$name: optional hooks not added (to add them: mise run install:claude-global -- --with-hooks $name)"
+  fi
+}
+
+remove_hooks() {
+  local name="$1" frag="$2/install/hooks.json" dest="$3"
+  [ -f "$frag" ] || return 0
+  node "$hooks_helper" remove "$frag" "$dest" || fail "$name: its hooks were not removed"
+}
 
 for name in "${names[@]}"; do
   case "$name" in */*|.*|'') fail "$name: invalid skill name"; continue ;; esac
@@ -60,11 +112,12 @@ for name in "${names[@]}"; do
 
     if [ -L "$dest" ]; then
       if [ "$(resolve "$dest")" = "$(resolve "$src")" ]; then
-        echo "$name: already installed -> $(readlink "$dest")"; continue
+        echo "$name: already installed -> $(readlink "$dest")"
+      else
+        old="$(readlink "$dest")"
+        ln -sfn "$src" "$dest"
+        echo "$name: installed -> $src (was -> $old)"
       fi
-      old="$(readlink "$dest")"
-      ln -sfn "$src" "$dest"
-      echo "$name: installed -> $src (was -> $old)"
     elif [ -e "$dest" ]; then
       if ! diff -rq "$dest" "$src" >/dev/null 2>&1; then
         fail "$name: $dest is a real directory and differs from $src — reconcile by hand (diff -r \"$dest\" \"$src\")"
@@ -79,6 +132,7 @@ for name in "${names[@]}"; do
       ln -s "$src" "$dest"
       echo "$name: installed -> $src"
     fi
+    install_hooks "$name" "$src" "$dest"
 
   else
     if [ -L "$dest" ]; then
@@ -86,6 +140,7 @@ for name in "${names[@]}"; do
       if [ "$target" = "$src" ] || { [ -n "$(resolve "$dest")" ] && [ "$(resolve "$dest")" = "$(resolve "$src")" ]; }; then
         rm "$dest"
         echo "$name: uninstalled"
+        remove_hooks "$name" "$src" "$dest"
       else
         fail "$name: $dest points at $target, not this checkout — left alone"
       fi
@@ -93,6 +148,8 @@ for name in "${names[@]}"; do
       fail "$name: $dest is a real directory, not an install from this repo — left alone"
     else
       echo "$name: not installed"
+      # A hook left behind would run a script that isn't there.
+      remove_hooks "$name" "$src" "$dest"
     fi
   fi
 done

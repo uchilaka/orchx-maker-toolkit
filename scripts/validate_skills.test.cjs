@@ -14,6 +14,12 @@ try {
   console.error('❌ Could not locate gemini-cli via Homebrew. Is it installed?');
   process.exit(1);
 }
+// The path is inside gemini-cli's package, so a release can move it. Say so
+// once, rather than reporting every skill as failing validation.
+if (!fs.existsSync(VALIDATOR_PATH)) {
+  console.error(`❌ gemini-cli's skill validator not found at ${VALIDATOR_PATH}. Did a gemini-cli upgrade move it?`);
+  process.exit(1);
+}
 
 console.log('🔍 Starting Skill Validation Suite...\n');
 

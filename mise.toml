@@ -17,8 +17,16 @@ description = "Point git at the tracked .githooks/ directory (gitleaks pre-commi
 run = "git config core.hooksPath .githooks"
 
 [tasks.test]
-description = "Validate all skills via the gemini-cli Homebrew skill validator"
-run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs"
+description = "Validate all skills via the gemini-cli Homebrew skill validator, then self-test publish-prep and the plugin and skill validators"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs scripts/validate_plugin.selftest.cjs scripts/validate_skills.selftest.cjs"
+
+[tasks."test:publish-prep"]
+description = "Self-test publish-prep against its fixtures: each check must catch the problem seeded for it"
+run = "node --test scripts/publish_prep.selftest.cjs"
+
+[tasks."publish-prep"]
+description = "Check publishable skills, agents and scripts for secrets, personal paths, frontmatter and undeclared dependencies; exits 1 on any high finding. Pass paths to check just those"
+run = "node .gemini/skills/publish-prep/scripts/publish_prep.cjs"
 
 [tasks."build:gemini"]
 description = "Package .gemini/skills/* into dist/*.skill archives"
@@ -26,7 +34,7 @@ run = "rm -rf dist && mkdir -p dist && for d in .gemini/skills/*; do if [ -d \"$
 
 [tasks."build:claude"]
 description = "Validate the Claude Code plugin marketplace in .claude-plugin/, which publishes the repo's Claude-native skills"
-run = "claude plugin validate --strict ."
+run = "node scripts/validate_plugin.cjs"
 
 [tasks."mount:claude"]
 description = "Symlink .gemini/skills/* into .claude/skills/ so they're discoverable as Claude Code skills too"
@@ -37,19 +45,22 @@ description = "Remove the .claude/skills/ symlinks created by mount:claude, leav
 run = "for f in .claude/skills/*/; do name=$(basename \"$f\"); target=\".claude/skills/$name\"; if [ -L \"$target\" ]; then rm \"$target\"; echo \"unmounted $name\"; fi; done"
 
 [tasks."install:claude-global"]
-description = "Symlink this repo's Claude-native skills into ~/.claude/skills/ (all, or the names given: mise run install:claude-global browser-test-assist)"
+description = "Symlink this repo's Claude-native skills into ~/.claude/skills/ (all, or the names given: mise run install:claude-global browser-test-assist), and offer their optional hooks (--with-hooks / --no-hooks)"
 run = "bash scripts/claude-global-skill.sh install"
 
 [tasks."uninstall:claude-global"]
-description = "Remove ~/.claude/skills/ symlinks that point into this repo (all, or the names given)"
+description = "Remove ~/.claude/skills/ symlinks that point into this repo, and their optional hooks (all, or the names given)"
 run = "bash scripts/claude-global-skill.sh uninstall"
 
+# TODO(LAR-465): discover the check-mermaid-artifact tests rather than naming each file.
 [tasks."test:claude"]
-description = "Self-test the validator and the global-install script, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
-run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs scripts/pr_triage.test.cjs || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
+description = "Self-test the validator, the global-install script, the marketplace entries, /browse, /check-mermaid-artifact and /pr-triage, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"
+run = "node --test scripts/validate_claude_skills.selftest.cjs scripts/claude_global_skill.selftest.cjs scripts/marketplace.test.cjs '.claude/skills/browse/test/*.test.mjs' scripts/pr_triage.test.cjs || exit 1; python3 .claude/skills/check-mermaid-artifact/test/test_check_artifact.py && python3 .claude/skills/check-mermaid-artifact/test/test_mermaid_export.py || exit 1; mise run mount:claude; node scripts/validate_claude_skills.test.cjs; status=$?; mise run unmount:claude; exit $status"
 
 [hooks]
 # `;` not `&&`, and hooks first: `gemini extensions install` exits 1 when ralph is
 # already installed, which would otherwise skip install:hooks on every machine
 # that has run setup before, and mise only warns on a failed postinstall.
-postinstall = "mise run install:hooks; mise run install:extensions"
+# CI skips the extension: no task needs it, and it would fetch a third-party
+# repo at HEAD on every run.
+postinstall = "mise run install:hooks; [ -n \"$CI\" ] || mise run install:extensions"

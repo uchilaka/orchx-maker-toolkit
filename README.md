@@ -21,11 +21,13 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 
 | Skill | Description | Documentation |
 | :--- | :--- | :--- |
+| `browse` | Claude Code: renders plans, reviews and other markdown artifacts in the browser with live reload. | [SKILL.md](./.claude/skills/browse/SKILL.md) |
 | `finish-worktree` | Exits Git worktrees, prepares draft PRs, and applies templates. | [Docs](./docs/finish-worktree.md) |
 | `import-profile` | Syncs global preferences and memory from external profiles. | [Docs](./docs/import-profile.md) |
 | `llm-wikify` | Claude Code: scaffolds a Karpathy-style LLM-maintained wiki (sources, wiki, schema) in any repo. | [Docs](./docs/llm-wikify.md) |
 | `markdown-manager` | Enforces documentation standards and manages planning artifacts. | [Docs](./docs/markdown-manager.md) |
-| `release` | Automates the version bump, changelog, build, and git release process. | [Docs](./docs/release.md) |
+| `publish-prep` | Checks skills, agents and scripts for secrets, personal paths, frontmatter and undeclared dependencies before they're shared, then proposes fixes for approval. | [Docs](./docs/publish-prep.md) |
+| `release` | Automates the version bump, changelog, build, and git release process, gated on `publish-prep`. | [Docs](./docs/release.md) |
 | `specialist` | Orchestrates expert code, architecture, security, design, and devops reviews. | [Docs](./docs/specialist.md) |
 | `start-worktree` | Scaffolds isolated work environments for new Jira tickets. | [Docs](./docs/start-worktree.md) |
 | `summon-profile` | Synchronizes local profile with remote machines via scp. | [Docs](./docs/summon-profile.md) |
@@ -77,11 +79,17 @@ gemini skills link ./.gemini/skills
 
 ### Installing the Claude Code plugin
 
-The repo's Claude-native skills (currently `patch-my-hosts`, `llm-wikify` and `browser-test-assist`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
+The repo's Claude-native skills (currently `patch-my-hosts`, `llm-wikify`, `browser-test-assist` and `browse`) ship as a Claude Code plugin, `orchx-maker`, from this repo's own marketplace:
 ```bash
 claude plugin marketplace add uchilaka/orchx-maker-toolkit
 claude plugin install orchx-maker@orchx-maker-toolkit
 ```
+
+To also start the `/browse` live-reload preview at every session start, install `hot-reload-preview`. It holds only that hook and brings `orchx-maker` along as a dependency:
+```bash
+claude plugin install hot-reload-preview@orchx-maker-toolkit
+```
+It serves the folder you choose the first time `/browse` offers, or `~/project-plans` if it exists, or nothing. The hook runs code from this repo at every session start, so add the marketplace at a release tag if you'd rather not run each new push to `main`.
 The Gemini skills above are not part of the plugin. Several share a name with a different skill in a typical Claude Code setup, so they stay Gemini-only.
 
 ### Activating Skills
@@ -104,7 +112,11 @@ If you want to modify a skill or add a new one:
     ```bash
     mise run build:gemini
     ```
-4.  The updated `.skill` files will be available in the `dist/` folder.
+4.  Check that nothing personal or machine-specific is about to ship (the same gate `/release` runs):
+    ```bash
+    mise run publish-prep
+    ```
+5.  The updated `.skill` files will be available in the `dist/` folder.
 
 To publish a new Claude-native skill, add it in three places: its directory under `.claude/skills/`, a `!` allowlist line in `.gitignore`, and its path in the `skills` array of `.claude-plugin/marketplace.json`. That array is an explicit allowlist, so a skill that isn't in it doesn't ship. Then validate:
 <!-- TODO(LAR-397): build:claude fails --strict on the CLAUDE.md-at-plugin-root warning; the add-a-skill steps are also duplicated across CLAUDE.md and CONTRIBUTING.md. -->
@@ -123,14 +135,20 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
-The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `pr-triage`)
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`, `check-mermaid-artifact`, `pr-triage`)
 can be installed for use from any project, as symlinks back to this checkout:
 
 ```sh
 mise run install:claude-global                       # all repo-local skills
 mise run install:claude-global browser-test-assist   # just one
+mise run install:claude-global -- --with-hooks browse   # and add its optional hook
 mise run uninstall:claude-global browser-test-assist
 ```
+
+A skill can ship optional hooks in `install/hooks.json` (today: `browse`'s session-start
+preview server). Install asks before adding them to `~/.claude/settings.json`;
+`--with-hooks` or `--no-hooks` answers up front, and without a terminal to ask they're
+skipped. Uninstall removes them.
 
 See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
 checkout rather than a worktree.

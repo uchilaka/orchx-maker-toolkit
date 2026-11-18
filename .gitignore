@@ -23,6 +23,8 @@ coverage/
 !.claude/skills/patch-my-hosts
 !.claude/skills/browser-test-assist
 !.claude/skills/llm-wikify
+!.claude/skills/browse
+!.claude/skills/check-mermaid-artifact
 !.claude/skills/pr-triage
 
 # Local configuration files (dotenv)
@@ -33,3 +35,6 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Python bytecode from running skill scripts and tests
+__pycache__/

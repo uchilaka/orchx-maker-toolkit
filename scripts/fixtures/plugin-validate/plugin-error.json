@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "strict": false,
+  "target": "/r/.claude-plugin/marketplace.json",
+  "manifest": {
+    "file": "/r/.claude-plugin/marketplace.json",
+    "type": "marketplace",
+    "notes": [],
+    "gatingHooks": [],
+    "errors": [],
+    "warnings": []
+  },
+  "contents": [
+    {
+      "file": "/r/CLAUDE.md",
+      "type": "plugin",
+      "errors": [
+        {
+          "path": "skills[0]",
+          "message": "path escapes plugin directory: ../x",
+          "code": null
+        }
+      ],
+      "warnings": [],
+      "notes": [],
+      "gatingHooks": []
+    }
+  ]
+}

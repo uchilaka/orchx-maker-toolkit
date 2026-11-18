@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "strict": false,
+  "target": "/r/.claude-plugin/marketplace.json",
+  "manifest": {
+    "file": "/r/.claude-plugin/marketplace.json",
+    "type": "marketplace",
+    "errors": [],
+    "warnings": [],
+    "notes": [],
+    "gatingHooks": []
+  },
+  "contents": [
+    {
+      "file": "/r/plugins/other/CLAUDE.md",
+      "type": "plugin",
+      "errors": [],
+      "warnings": [
+        {
+          "path": "root",
+          "message": "CLAUDE.md at the plugin root is not loaded as project context. To ship context with your plugin, use a skill (skills/<name>/SKILL.md) instead.",
+          "code": null
+        }
+      ],
+      "notes": [],
+      "gatingHooks": []
+    }
+  ]
+}
