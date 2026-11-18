@@ -52,6 +52,14 @@ run = "bash scripts/claude-global-skill.sh install"
 description = "Remove ~/.claude/skills/ symlinks that point into this repo, and their optional hooks (all, or the names given)"
 run = "bash scripts/claude-global-skill.sh uninstall"
 
+[tasks."install:openv"]
+description = "Symlink ~/.local/bin/openv to the main checkout's openv script so it's on PATH in any terminal or harness"
+run = "bash .claude/skills/openv/bin/install-link.sh install"
+
+[tasks."uninstall:openv"]
+description = "Remove the ~/.local/bin/openv symlink when it points into openv"
+run = "bash .claude/skills/openv/bin/install-link.sh uninstall"
+
 # TODO(LAR-465): discover the check-mermaid-artifact tests rather than naming each file.
 [tasks."test:claude"]
 description = "Self-test the validator, the global-install script, the marketplace entries, /browse, /check-mermaid-artifact, /pr-triage and openv, then mount Gemini skills into .claude/skills/, validate them as Claude Code skills, and unmount"

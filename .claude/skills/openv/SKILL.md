@@ -9,8 +9,8 @@ The script is `${CLAUDE_SKILL_DIR}/bin/openv`, also linked onto PATH as `openv`.
 OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the
 skill loads.
 
-> In progress (plan `OPENV_PLUGIN.md`). `status`, `run` and `export` work now.
-> `mise run install:openv` comes next, then `items`, hooks and the template builder.
+> In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export` and
+> `mise run install:openv` work now. `items`, hooks and the template builder come next.
 
 ## The rule this skill exists for
 
@@ -25,6 +25,18 @@ under an agent.
 - `pass-cli` (Proton Pass CLI), logged in: `brew install protonpass/tap/pass-cli`, then
   `pass-cli login`. Only `--check`, `run` and `export` call it.
 - `jq`, but only for `items` (not built yet).
+
+## Install onto PATH
+
+```bash
+mise run install:openv
+```
+
+Symlinks `~/.local/bin/openv` to the main checkout's script (idempotent; warns if
+`~/.local/bin` isn't on `PATH`). To try an unmerged worktree copy first, run
+`SKILL_SOURCE_ROOT=$PWD mise run install:openv` from that worktree, then re-run from
+`main` after merge. `mise run uninstall:openv` removes the link when it points into
+openv.
 
 ## Where profiles live
 
