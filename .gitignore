@@ -26,6 +26,7 @@ coverage/
 !.claude/skills/browse
 !.claude/skills/check-mermaid-artifact
 !.claude/skills/pr-triage
+!.claude/skills/pick-model
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is
