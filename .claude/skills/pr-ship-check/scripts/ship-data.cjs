@@ -5,14 +5,15 @@
 // scripts/pr_ship_check.test.cjs.
 //
 // Usage: ship-data.cjs [pr-number]
-//   Prints {repo, pr, url, title, viewer, author, ownWork, base, head, draft,
+//   Prints {repo, pr, state, url, title, viewer, author, ownWork, base, head, draft,
 //   mergeable, mergeState, size, ci[], commits[], files[], gate} as JSON.
 //
 // Exit codes (the same as pr-triage's threads.cjs):
 //   0 - JSON printed (the gate may still have failed: read gate.pass)
-//   2 - no open PR for the current branch (and none given)
+//   2 - no open PR: none for the current branch, or the one given is merged or closed
 //   3 - gh or git missing, gh unauthenticated, or a GitHub API call failed
-//   4 - no 'origin' remote, or it isn't a github.com remote
+//   4 - no 'origin' remote, it isn't a github.com remote, or the PR belongs to
+//       another repo (a URL), since the records, threads and posts would not match
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -88,9 +89,17 @@ function blockingUnanswered(threads) {
   });
 }
 
-function gate({ records, items, onHead, threads }) {
+// A fixing commit counts only if it is one of the PR's own commits. An ancestry
+// check would also accept any commit already on the base branch.
+function prCommitMatcher(oids) {
+  const own = oids.map((o) => o.toLowerCase());
+  return (sha) => own.some((o) => o.startsWith(sha.toLowerCase()));
+}
+
+function gate({ records, items, onHead, threads, truncated = false }) {
   const reasons = [];
   if (!records.length) reasons.push('no review record in ~/pr-reviews for this PR: run a review first');
+  if (truncated) reasons.push('more review threads or comments than one page holds: check the threads by hand');
   const openFixNow = [];
   for (const item of items) {
     if (!item.sha) openFixNow.push({ ...item, reason: 'no fixing commit recorded' });
@@ -133,17 +142,22 @@ function reviewRecords(project, number) {
     .map((f) => path.join(dir, f));
 }
 
+// One page only. pr-triage's threads.cjs pages through threads; until this reuses
+// it, a PR with more than one page fails the gate rather than hiding threads.
 const THREADS_QUERY = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
-  reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login} body}}}}}}}`;
+  reviewThreads(first:100){pageInfo{hasNextPage} nodes{isResolved comments(first:100){pageInfo{hasNextPage} nodes{author{login} body}}}}}}}`;
+
+const REPO_IN_URL = /^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/i;
 
 function main() {
   const prArg = process.argv[2];
   const origin = git(['remote', 'get-url', 'origin'], { allowFail: true });
-  if (origin.status !== 0 || !/github\.com[:/]/.test(origin.stdout)) {
+  const originMatch = origin.status === 0 && origin.stdout.trim().match(REPO_IN_URL);
+  if (!originMatch) {
     console.error('ship-data: no github.com origin remote');
     process.exit(4);
   }
-  const fields = 'number,title,url,author,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,commits,files,statusCheckRollup';
+  const fields = 'number,state,title,url,author,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,commits,files,statusCheckRollup';
   const view = gh(['pr', 'view', ...(prArg ? [prArg] : []), '--json', fields], { allowFail: true });
   if (view.status !== 0) {
     if (/no pull requests found|could not resolve/i.test(view.stderr)) {
@@ -153,17 +167,29 @@ function main() {
     const err = new Error(view.stderr.trim()); err.exitCode = 3; throw err;
   }
   const pr = JSON.parse(view.stdout);
-  const repo = gh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']).stdout.trim();
+  // gh resolves a PR URL in any repo, but the records, threads and posts below
+  // are this checkout's, so a PR from elsewhere is refused.
+  const repo = (pr.url.match(/github\.com\/([^/]+\/[^/]+)\/pull\//i) || [])[1] || '';
+  if (repo.toLowerCase() !== originMatch[1].toLowerCase()) {
+    console.error(`ship-data: PR ${pr.url} is not in origin's repo (${originMatch[1]})`);
+    process.exit(4);
+  }
+  if (pr.state !== 'OPEN') {
+    console.error(`ship-data: PR #${pr.number} is ${pr.state.toLowerCase()}, not open`);
+    process.exit(2);
+  }
   const viewer = gh(['api', 'user', '-q', '.login']).stdout.trim();
 
-  // The PR head must be local for the ancestry check and per-commit file lists.
+  // The PR head must be local for the per-commit file lists.
   git(['fetch', '-q', 'origin', `refs/pull/${pr.number}/head`]);
-  const onHead = (sha) => git(['merge-base', '--is-ancestor', sha, pr.headRefOid], { allowFail: true }).status === 0;
+  const onHead = prCommitMatcher(pr.commits.map((c) => c.oid));
 
   const [owner, name] = repo.split('/');
   const threadsRaw = JSON.parse(gh(['api', 'graphql', '-f', `query=${THREADS_QUERY}`, '-f', `owner=${owner}`,
     '-f', `name=${name}`, '-F', `n=${pr.number}`]).stdout);
-  const threads = threadsRaw.data.repository.pullRequest.reviewThreads.nodes.map((t) => ({
+  const page = threadsRaw.data.repository.pullRequest.reviewThreads;
+  const truncated = page.pageInfo.hasNextPage || page.nodes.some((t) => t.comments.pageInfo.hasNextPage);
+  const threads = page.nodes.map((t) => ({
     isResolved: t.isResolved,
     comments: t.comments.nodes.map((c) => ({ author: c.author ? c.author.login : null, body: c.body })),
   }));
@@ -195,7 +221,7 @@ function main() {
   }
 
   const out = {
-    repo, pr: pr.number, url: pr.url, title: pr.title, viewer,
+    repo, pr: pr.number, state: pr.state, url: pr.url, title: pr.title, viewer,
     author: pr.author.login, ownWork: pr.author.login === viewer,
     base: pr.baseRefName, head: pr.headRefName, draft: pr.isDraft,
     mergeable: pr.mergeable, mergeState: pr.mergeStateStatus,
@@ -203,7 +229,7 @@ function main() {
     ci,
     commits,
     files: pr.files.map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions })),
-    gate: gate({ records, items, onHead, threads }),
+    gate: gate({ records, items, onHead, threads, truncated }),
   };
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
@@ -217,4 +243,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseFixNow, blockingUnanswered, gate };
+module.exports = { parseFixNow, blockingUnanswered, prCommitMatcher, gate };
