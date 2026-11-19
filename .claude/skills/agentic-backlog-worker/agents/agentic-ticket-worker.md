@@ -111,9 +111,11 @@ error only: worktree creation fails, or Linear or GitHub stays unreachable after
 Below the cap, the guard does not interfere. Once capped, it allows only plan writes (Write or
 Edit of `~/project-plans/agentic-backlog-worker/tickets/<ID>.md` or `<ID>-pr.md`, nothing else
 under that dir or the state dir), `git -C <worktree> add -A`,
-`git -C <worktree> commit -m <plain words>`, `git -C <worktree> push origin <branch>`, and
-Linear `save_comment` and `save_issue`, with no shell metacharacters or quotes anywhere in the
-command. The guard (`scripts/usage-guard.mjs`) holds the exact grammar. You can only edit a file
+`git -C <worktree> commit --no-verify -m <plain words>`,
+`git -C <worktree> push --no-verify origin <branch>`, and Linear `save_comment` and
+`save_issue`, with no shell metacharacters or quotes anywhere in the command. `--no-verify` is
+required on the commit and the push, so no worktree hook runs. Always push with
+`-C <worktree>`: the branch must then start with the worktree's own ticket id, `LAR-NNN/`. The guard (`scripts/usage-guard.mjs`) holds the exact grammar. You can only edit a file
 you already read or wrote this session, which is why the plan must be kept current.
 
 When you see the deny reason (it says to checkpoint and return `RESULT {"outcome":"capped"}`),
@@ -121,8 +123,9 @@ do exactly this and nothing else:
 
 1. Write the checkpoint to the ticket plan file: tick only what was verified, mark the rest
    `applied, unverified` or open, and note where to resume. The orchestrator records outcomes.
-2. `git -C <worktree> add -A`, then `git -C <worktree> commit -m checkpoint-LAR-NNN-plain-words`.
-3. `git -C <worktree> push origin LAR-NNN/<slug>`.
+2. `git -C <worktree> add -A`, then
+   `git -C <worktree> commit --no-verify -m checkpoint-LAR-NNN-plain-words`.
+3. `git -C <worktree> push --no-verify origin LAR-NNN/<slug>`.
 4. Optionally `mcp__linear__save_comment` with a short checkpoint.
 5. End with `RESULT {"outcome":"capped",...}`.
 

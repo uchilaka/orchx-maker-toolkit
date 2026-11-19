@@ -111,3 +111,15 @@ test('size input is S or M only', () => {
   assert.ok(body.includes('size (S or M)'));
   assert.ok(!body.includes('S, M or L'));
 });
+
+// Live review SEC7/SEC6: the guard denies a capped commit or push without --no-verify, and pins
+// a -C push to the worktree's ticket, so the capped procedure must spell both out.
+test('capped section: every commit and push carries --no-verify and uses -C', () => {
+  const capped = body.slice(body.indexOf('## When the usage cap is reached'), body.indexOf('## Output'));
+  const cmds = capped.match(/`git [^`]+`/g) ?? [];
+  const writes = cmds.filter((c) => / (commit|push) /.test(c));
+  assert.ok(writes.length >= 4, `found ${writes}`);
+  for (const c of writes) {
+    assert.match(c, /^`git -C <worktree> (commit|push) --no-verify /, c);
+  }
+});

@@ -69,11 +69,18 @@ function loadFragment(file, skillDir) {
 }
 
 // Only a command that is nothing but a path can be compared by file; anything with
-// arguments or shell syntax is compared as text.
+// arguments or shell syntax is compared as text. A path may be wrapped whole in double
+// or single quotes (fragments quote "{{SKILL_DIR}}/x" so a skill dir with spaces
+// survives the shell), as long as nothing inside would still expand.
 const isPlainPath = (c) => /^[\w./@+-]+$/.test(c) || /^~\/[\w./@+-]+$/.test(c);
-const realOf = (c) => {
+const pathOf = (c) => {
+  const quoted = c.match(/^"([^"$`\\]+)"$/) || c.match(/^'([^']+)'$/);
+  if (quoted) return quoted[1];
+  return isPlainPath(c) ? c : null;
+};
+const realOf = (p) => {
   try {
-    return fs.realpathSync(expandHome(c));
+    return fs.realpathSync(expandHome(p));
   } catch {
     return null;
   }
@@ -82,9 +89,11 @@ function statusLineIsOurs(current, ours) {
   const a = current?.command;
   if (typeof a !== 'string') return false;
   if (a === ours.command) return true;
-  if (!isPlainPath(a) || !isPlainPath(ours.command)) return false;
-  const ra = realOf(a);
-  return ra !== null && ra === realOf(ours.command);
+  const pa = pathOf(a);
+  const po = pathOf(ours.command);
+  if (pa === null || po === null) return false;
+  const ra = realOf(pa);
+  return ra !== null && ra === realOf(po);
 }
 
 function loadSettings() {

@@ -295,7 +295,9 @@ const agentsDir = () => path.join(home, '.claude', 'agents');
 const deltaSrc = () => srcOf('delta');
 const deltaStatusLine = () => ({ type: 'command', command: `${path.join(skills, 'delta')}/statusline.sh`, refreshInterval: 60 });
 
-function makeDelta({ statusLine = true } = {}) {
+function makeDelta({ statusLine = true, quoted = false } = {}) {
+  const dir = quoted ? '"{{SKILL_DIR}}' : '{{SKILL_DIR}}';
+  const end = quoted ? '"' : '';
   fs.mkdirSync(path.join(deltaSrc(), 'agents'), { recursive: true });
   fs.writeFileSync(path.join(deltaSrc(), 'SKILL.md'), '---\nname: delta\n---\n');
   fs.writeFileSync(path.join(deltaSrc(), 'agents', 'helper.md'), '---\nname: helper\n---\n');
@@ -303,8 +305,8 @@ function makeDelta({ statusLine = true } = {}) {
   fs.mkdirSync(path.join(deltaSrc(), 'install'));
   fs.writeFileSync(path.join(deltaSrc(), 'install', 'hooks.json'), JSON.stringify({
     description: 'Show delta in the status line',
-    hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: '{{SKILL_DIR}}/start.sh' }] }] },
-    statusLine: { type: 'command', command: '{{SKILL_DIR}}/statusline.sh', refreshInterval: 60 },
+    hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: `${dir}/start.sh${end}` }] }] },
+    statusLine: { type: 'command', command: `${dir}/statusline.sh${end}`, refreshInterval: 60 },
   }));
 }
 
@@ -446,4 +448,41 @@ test('statusLine: re-points an aliased one when hooks are already present, keeps
 
   assert.strictEqual(run('uninstall', 'delta').status, 0);
   assert.strictEqual(readSettings().statusLine, undefined);
+});
+
+// A quoted "{{SKILL_DIR}}/x" (agentic-backlog-worker, so a path with spaces survives the shell)
+// must still be recognised as ours: exact match for hooks, and by file for an aliased statusLine.
+test('statusLine: a quoted fragment installs, is reported present, and uninstalls', () => {
+  makeDelta({ quoted: true });
+  const quotedLine = { ...deltaStatusLine(), command: `"${deltaStatusLine().command}"` };
+  assert.strictEqual(run('install', '--with-hooks', 'delta').status, 0);
+  assert.deepStrictEqual(readSettings().statusLine, quotedLine);
+  assert.deepStrictEqual(commands(readSettings()), [`"${path.join(skills, 'delta')}/start.sh"`]);
+  assert.match(run('install', '--with-hooks', 'delta').stdout, /optional hooks already in/);
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.strictEqual(readSettings().statusLine, undefined);
+  assert.deepStrictEqual(commands(readSettings()), []);
+});
+
+test('statusLine: an aliased path is re-pointed to a quoted fragment, and a quoted alias counts too', () => {
+  makeDelta({ quoted: true });
+  fs.mkdirSync(path.join(deltaSrc(), 'scripts'));
+  fs.writeFileSync(path.join(deltaSrc(), 'scripts', 'real.sh'), '#!/bin/sh\n');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), path.join(deltaSrc(), 'statusline.sh'));
+  const old = path.join(home, 'old statusline.sh');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), old);
+  run('install', 'delta');
+  const quotedCmd = `"${deltaStatusLine().command}"`;
+  for (const current of [`"${old}"`, `'${old}'`]) {
+    writeSettings({ statusLine: { type: 'command', command: current } });
+    const r = run('install', '--with-hooks', 'delta');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stdout, /kept yours/, current);
+    assert.strictEqual(readSettings().statusLine.command, quotedCmd, current);
+  }
+  // Quoting is not a way in for shell syntax: "$x" or a trailing command stays foreign.
+  for (const foreign of [`"${old}" --x`, `"$HOME/old statusline.sh"`]) {
+    writeSettings({ statusLine: { type: 'command', command: foreign } });
+    assert.match(run('install', '--with-hooks', 'delta').stdout, /kept yours/, foreign);
+  }
 });

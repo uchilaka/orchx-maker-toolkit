@@ -143,11 +143,15 @@ test('CLI exits 0 and reports a corrupt run', () => {
   assert.match(r.stdout, /^Backlog worker: couldn't read /);
 });
 
-test('install/hooks.json parses and its command exists in the skill dir', () => {
+// Live review SEC9: {{SKILL_DIR}} is substituted into a shell command, so it is double-quoted to
+// survive a path with spaces.
+test('install/hooks.json parses and its quoted commands exist in the skill dir', () => {
   const hooks = JSON.parse(readFileSync(path.join(SKILL, 'install', 'hooks.json'), 'utf8'));
-  const cmd = hooks.hooks.SessionStart[0].hooks[0].command;
-  assert.ok(cmd.startsWith('{{SKILL_DIR}}/'));
-  assert.ok(existsSync(path.join(SKILL, cmd.replace('{{SKILL_DIR}}/', ''))));
+  for (const cmd of [hooks.hooks.SessionStart[0].hooks[0].command, hooks.statusLine.command]) {
+    const m = cmd.match(/^"\{\{SKILL_DIR\}\}\/([^"$`\\]+)"$/);
+    assert.ok(m, cmd);
+    assert.ok(existsSync(path.join(SKILL, m[1])), cmd);
+  }
 });
 
 test('ticket lines are sanitized: newlines, markdown and HTML in untrusted fields', () => {

@@ -164,9 +164,15 @@ function setReset(raw) {
 }
 
 // Without a usage reading and with no future reset, waiting can never end, so it is an error; so
-// is still being closed at or past the deadline.
+// are 7d usage at or above its cap, and still being closed at or past the deadline.
 function checkWindow(deadline) {
   const ctx = context();
+  // The 7d window outlasts any wait for the 5h one, so waiting on it would idle until the
+  // deadline and then stop with the wrong reason (live review COR3).
+  if (ctx.usage.state === 'ok' && ctx.usage.sevenDay
+    && ctx.usage.sevenDay.pct >= ctx.config.usage_cap_7d) {
+    fail('7d usage at or above cap');
+  }
   const { window } = resolveWindow(ctx);
   const open = Boolean(window?.open);
   if (!open && ctx.usage.state !== 'ok' && !(window?.resetsAt > ctx.t)) {
@@ -373,10 +379,14 @@ function finish(id, opts) {
   setTicket(run, id, patch);
   heartbeat(run, t);
   saveRun(stateDir(), run);
-  if (measurable) {
+  // Only a finished ticket's cost is history: a capped, handed-off or failed one stopped partway,
+  // and its smaller delta would pull the p75 down until `afford` approved tickets that later
+  // breach the cap (live review COR2). The delta still lands on the ticket for the debrief.
+  const recorded = measurable && result.outcome === 'pr';
+  if (recorded) {
     recordCost(stateDir(), { size: ticket.size, delta5h, tokens, shared: Boolean(ticket.shared) });
   }
-  return { id, status: patch.status, delta5h, recorded: measurable };
+  return { id, status: patch.status, delta5h, recorded };
 }
 
 // Takes a not-yet-running ticket out of the queue without pretending it was worked: e.g. a

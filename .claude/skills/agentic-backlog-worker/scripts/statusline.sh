@@ -29,11 +29,16 @@ merge() {
       elif o == null or n.resets_at > o.resets_at then n
       elif n.resets_at == o.resets_at and n.used_percentage > o.used_percentage then n
       else o end;
+    def reading(r): [r.five_hour, r.seven_day] | map(if . then [.used_percentage, .resets_at] else null end);
     ($prev.rate_limits // {}) as $o
-    | {captured_at: (now|floor),
-       rate_limits: {five_hour: pick($o.five_hour; .rate_limits.five_hour),
-                     seven_day: pick($o.seven_day; .rate_limits.seven_day)}}
-    | .rate_limits |= with_entries(select(.value != null))' <<<"$input" > "$tmp"
+    | {five_hour: pick($o.five_hour; .rate_limits.five_hour),
+       seven_day: pick($o.seven_day; .rate_limits.seven_day)}
+    | with_entries(select(.value != null)) as $merged
+    # captured_at means "last time a reading changed", not "last tick": idle sessions re-send
+    # old readings forever. A stale unchanged reading therefore ages out and fails closed, by design.
+    | {captured_at: (if $prev.captured_at == null or reading($merged) != reading($o)
+                     then (now|floor) else $prev.captured_at end),
+       rate_limits: $merged}' <<<"$input" > "$tmp"
 }
 
 snapshot() {
@@ -48,7 +53,9 @@ snapshot() {
   # the guard fails closed on a stale one. A lock is broken only when its own
   # mtime is over 10s old (a holder SIGKILLed mid-write never runs its trap).
   if ! mkdir "$lock" 2>/dev/null; then
-    deadline=$(($(date +%s) + ${ABW_LOCK_WAIT_S:-3}))
+    # Digits only: bash arithmetic expands a[$(cmd)] subscripts, so anything else is ignored.
+    case $ABW_LOCK_WAIT_S in ''|*[!0-9]*) wait_s=3;; *) wait_s=$ABW_LOCK_WAIT_S;; esac
+    deadline=$(($(date +%s) + wait_s))
     tries=0
     until mkdir "$lock" 2>/dev/null; do
       # GNU first: on GNU stat, -f is "filesystem status" and prints a report to

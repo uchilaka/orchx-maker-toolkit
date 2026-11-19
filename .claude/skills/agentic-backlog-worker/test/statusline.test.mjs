@@ -164,3 +164,46 @@ test('an old lock that is a regular file cannot be removed: job gives up within 
   assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0}ms`);
   assert.ok(!existsSync(stateFile(home)), 'write must be skipped');
 });
+
+// Live review SEC5: idle sessions re-send old cached readings on every tick. If each one freshened
+// captured_at, a stale percentage would look current forever and the guard would never cap.
+// captured_at is pinned to an old value by hand rather than waiting for the clock to move.
+test('captured_at advances only when a reading changes', () => {
+  const home = tmpHome();
+  const before = Math.floor(Date.now() / 1000);
+  run(home, { five_hour: w(28, 100), seven_day: w(54, 900) });
+  const first = JSON.parse(readFileSync(stateFile(home), 'utf8'));
+  assert.ok(first.captured_at >= before, 'no prev: captured_at is now');
+  writeFileSync(stateFile(home), JSON.stringify({ ...first, captured_at: 1000 }));
+  // The same reading again, and an older one the merge ignores: neither is news.
+  run(home, { five_hour: w(28, 100), seven_day: w(54, 900) });
+  assert.strictEqual(JSON.parse(readFileSync(stateFile(home), 'utf8')).captured_at, 1000);
+  run(home, { five_hour: w(20, 100) });
+  assert.strictEqual(JSON.parse(readFileSync(stateFile(home), 'utf8')).captured_at, 1000);
+  // A higher reading, then a new window: each one advances it.
+  run(home, { five_hour: w(29, 100) });
+  const grown = JSON.parse(readFileSync(stateFile(home), 'utf8'));
+  assert.ok(grown.captured_at >= before, 'changed used_percentage advances captured_at');
+  writeFileSync(stateFile(home), JSON.stringify({ ...grown, captured_at: 1000 }));
+  run(home, { seven_day: w(1, 2000) });
+  assert.ok(JSON.parse(readFileSync(stateFile(home), 'utf8')).captured_at >= before,
+    'changed resets_at advances captured_at');
+});
+
+// Live review SEC8: ABW_LOCK_WAIT_S went into $(( )), where bash expands a[$(cmd)] subscripts.
+test('a hostile ABW_LOCK_WAIT_S runs nothing', () => {
+  const home = tmpHome();
+  withLock(home, 60); // a stale lock: the wait (and its arithmetic) runs, then the lock breaks
+  const pwned = path.join(home, 'PWNED');
+  const r = spawnSync('bash', [SCRIPT], {
+    input: payload({ five_hour: w(19, 500) }),
+    encoding: 'utf8',
+    env: {
+      ...process.env, HOME: home, ABW_STATUSLINE_FOREGROUND: '1',
+      ABW_LOCK_WAIT_S: `a[$(touch ${pwned})]`,
+    },
+  });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(!existsSync(pwned), 'the payload in ABW_LOCK_WAIT_S must not run');
+  assert.strictEqual(saved(home).five_hour.used_percentage, 19);
+});

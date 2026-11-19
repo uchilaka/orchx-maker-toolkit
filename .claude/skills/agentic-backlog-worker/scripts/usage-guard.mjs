@@ -209,14 +209,20 @@ function tokenize(cmd) {
 const PUSH_FLAGS = new Set(['-u', '--set-upstream', '--no-verify', '-q', '--quiet', '-v']);
 const FORCE_FLAG = /^(-f|--force(-with-lease)?(=.*)?)$/;
 
-function pushAllowed(args) {
+// `ticket` is the ticket id of the `-C` worktree (null without `-C`): the push must then land on
+// that ticket's own branch, so one agent can't overwrite another's (live review SEC6).
+function pushAllowed(args, ticket) {
   const positional = [];
+  let noVerify = false;
   for (const a of args) {
     if (FORCE_FLAG.test(a)) return false;
+    if (a === '--no-verify') noVerify = true;
     if (a.startsWith('-')) {
       if (!PUSH_FLAGS.has(a)) return false;
     } else positional.push(a);
   }
+  // A pre-push hook in the worktree is agent-editable code (live review SEC7).
+  if (!noVerify) return false;
   // Exactly `<remote> <refspec>`: a bare push can't be verified, and a URL as the remote would
   // send the branch somewhere else.
   if (positional.length !== 2) return false;
@@ -225,11 +231,12 @@ function pushAllowed(args) {
   // capped agent could have planted.
   if (remote !== 'origin') return false;
   if (refspec.startsWith('+')) return false;
-  const colon = refspec.indexOf(':');
-  // `:dst` (empty src) deletes the remote branch.
-  if (colon === 0) return false;
-  const dst = colon < 0 ? refspec : refspec.slice(colon + 1);
-  return BRANCH.test(dst);
+  const parts = refspec.split(':');
+  // `:dst` (empty src) deletes the remote branch; a second colon is not a refspec at all.
+  if (parts.length > 2 || parts[0] === '') return false;
+  const dst = parts[parts.length - 1];
+  if (!BRANCH.test(dst)) return false;
+  return ticket === null || dst.startsWith(`${ticket}/`);
 }
 
 // Closed flag sets, matched exactly: git accepts abbreviated long options (`--fil=` for
@@ -237,8 +244,10 @@ function pushAllowed(args) {
 const COMMIT_FLAGS = new Set(['-a', '--all', '--no-verify', '-q']);
 
 function commitAllowed(args) {
+  let noVerify = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === '--no-verify') noVerify = true;
     if (a === '-m') {
       // Consumes the next word as the message, even one starting with `-`.
       if (++i >= args.length) return false;
@@ -246,7 +255,8 @@ function commitAllowed(args) {
       // value is the message
     } else if (!COMMIT_FLAGS.has(a)) return false;
   }
-  return true;
+  // pre-commit and commit-msg hooks in the worktree are agent-editable code (live review SEC7).
+  return noVerify;
 }
 
 const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
@@ -278,30 +288,31 @@ function insideGuardedDirs(real) {
     base === null || real === base || real.startsWith(base + path.sep));
 }
 
-function worktreeDirAllowed(dir) {
-  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
+// The worktree's resolved path when every check holds, else null.
+function worktreeDir(dir) {
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return null;
   try {
     const real = realpathSync.native(dir);
-    if (!statSync(real).isDirectory() || insideGuardedDirs(real)) return false;
-    if (!/^[A-Z]+-[0-9]+$/.test(path.basename(real))) return false;
-    if (!path.basename(path.dirname(real)).endsWith('-worktrees')) return false;
+    if (!statSync(real).isDirectory() || insideGuardedDirs(real)) return null;
+    if (!/^[A-Z]+-[0-9]+$/.test(path.basename(real))) return null;
+    if (!path.basename(path.dirname(real)).endsWith('-worktrees')) return null;
     // Only the immediate parent may be a `*-worktrees` dir: nesting inside another worktree
     // (which the agent can populate) is denied.
-    if (real.split(path.sep).slice(0, -2).some((c) => c.endsWith('-worktrees'))) return false;
+    if (real.split(path.sep).slice(0, -2).some((c) => c.endsWith('-worktrees'))) return null;
     const dotGit = path.join(real, '.git');
-    if (!lstatSync(dotGit).isFile()) return false;
+    if (!lstatSync(dotGit).isFile()) return null;
     const m = readFileSync(dotGit, 'utf8').match(/^gitdir: ([^\n]+)\n?$/);
-    if (!m) return false;
+    if (!m) return null;
     const gitdir = realpathSync.native(path.resolve(real, m[1]));
     const parts = gitdir.split(path.sep);
     const n = parts.length;
-    if (n < 4 || parts[n - 2] !== 'worktrees' || parts[n - 3] !== '.git') return false;
+    if (n < 4 || parts[n - 2] !== 'worktrees' || parts[n - 3] !== '.git') return null;
     const main = path.dirname(path.dirname(path.dirname(gitdir)));
-    if (!lstatSync(path.join(main, '.git')).isDirectory()) return false;
-    if (insideGuardedDirs(main)) return false;
-    return !main.split(path.sep).some((c) => c.endsWith('-worktrees'));
+    if (!lstatSync(path.join(main, '.git')).isDirectory()) return null;
+    if (insideGuardedDirs(main)) return null;
+    return main.split(path.sep).some((c) => c.endsWith('-worktrees')) ? null : real;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -312,15 +323,18 @@ function bashAllowed(command) {
   const tokens = tokenize(command);
   if (!tokens) return false;
   let at = 1;
+  let ticket = null;
   // Only a single leading `-C <dir>`; a second one, or any other git option, fails the
   // subcommand check below.
   if (tokens[at] === '-C') {
-    if (!worktreeDirAllowed(tokens[at + 1])) return false;
+    const real = worktreeDir(tokens[at + 1]);
+    if (!real) return false;
+    ticket = path.basename(real);
     at += 2;
   }
   const sub = tokens[at];
   const args = tokens.slice(at + 1);
-  if (sub === 'push') return pushAllowed(args);
+  if (sub === 'push') return pushAllowed(args, ticket);
   if (sub === 'commit') return commitAllowed(args);
   if (sub === 'add') return addAllowed(args);
   return false;

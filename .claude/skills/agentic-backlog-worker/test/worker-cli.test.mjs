@@ -184,9 +184,6 @@ test('window: exits 3 when capped and 0 when open', () => {
   assert.strictEqual(capped.json.open, false);
   assert.strictEqual(capped.json.deadline, NOW + 3600 + 900); // the reset plus 15 minutes
   assert.strictEqual(box.run(['window', '--deadline', String(NOW + 5)]).json.deadline, NOW + 5);
-  // Capped by 7d with no 5h window: no reset is known, so 5h15m from now.
-  box.snapshot({ seven: 80 });
-  assert.strictEqual(box.run(['window']).json.deadline, NOW + 18900);
   box.snapshot({ five: 80 });
   box.snapshot({ five: 10 });
   assert.strictEqual(box.run(['window']).code, 0);
@@ -353,12 +350,12 @@ test('finish: tickets that overlap are recorded as shared', () => {
   assert.strictEqual(box.run(['begin', 'LAR-2']).json.shared, true);
   box.snapshot({ five: 30 });
   for (const id of ['LAR-1', 'LAR-2']) {
-    const r = box.run(['finish', id, '--result', '{"outcome":"handoff","reason":"two designs"}']);
+    const r = box.run(['finish', id, '--result', `{"outcome":"pr","pr":"https://github.com/o/r/pull/${id}"}`]);
     assert.strictEqual(r.code, 0, r.stdout);
   }
   // LAR-1 began alone but LAR-2 ran alongside it, so both deltas are shared.
   assert.deepStrictEqual(box.history().map((h) => h.shared), [true, true]);
-  assert.deepStrictEqual(box.runJson().tickets.map((t) => t.status), ['handoff', 'handoff']);
+  assert.deepStrictEqual(box.runJson().tickets.map((t) => t.status), ['pr', 'pr']);
 });
 
 test('finish: capped sets status capped and leaves the run active until stop', () => {
@@ -710,4 +707,38 @@ test('start: a git repo outside the repos root is rejected, by prefix or by syml
     assert.strictEqual(r.code, 1, repo);
     assert.match(r.json.error, /is not under/, repo);
   }
+});
+
+// --- live review COR2 / COR3 -------------------------------------------------------------------
+
+test('finish: only a pr outcome records cost; capped, handoff and failed do not', () => {
+  const box = started([T('LAR-1'), T('LAR-2'), T('LAR-3')]);
+  for (const id of ['LAR-1', 'LAR-2', 'LAR-3']) box.run(['begin', id]);
+  box.snapshot({ five: 30 });
+  for (const [id, result] of [
+    ['LAR-1', '{"outcome":"capped","reason":"cap"}'],
+    ['LAR-2', '{"outcome":"handoff","reason":"two designs"}'],
+    ['LAR-3', '{"outcome":"failed","reason":"no worktree"}'],
+  ]) {
+    const r = box.run(['finish', id, '--result', result]);
+    assert.strictEqual(r.code, 0, r.stdout);
+    assert.strictEqual(r.json.recorded, false, id);
+    assert.strictEqual(r.json.delta5h, 20, id); // still measured on the ticket, just not recorded
+  }
+  assert.strictEqual(existsSync(path.join(box.env.ABW_STATE_DIR, 'history.json')), false);
+});
+
+test('window: 7d at or above its cap is an error at once, not a 5h wait', async () => {
+  const box = sandbox();
+  for (const snap of [{ seven: 80 }, { five: 10, seven: 75 }]) {
+    box.snapshot(snap);
+    const r = box.run(['window']);
+    assert.strictEqual(r.code, 1, JSON.stringify(snap));
+    assert.strictEqual(r.json.error, '7d usage at or above cap');
+  }
+  const waited = await box.spawn(['window', '--wait'], { ABW_POLL_S: '0.05' }).done;
+  assert.strictEqual(waited.code, 1);
+  assert.deepStrictEqual(waited.json, { error: '7d usage at or above cap' });
+  box.snapshot({ five: 10, seven: 74 });
+  assert.strictEqual(box.run(['window']).code, 0);
 });

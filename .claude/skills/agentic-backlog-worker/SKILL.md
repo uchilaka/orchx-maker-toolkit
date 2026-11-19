@@ -165,7 +165,8 @@ node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" start --tickets "$STATE/triage.jso
 3. `worker.mjs window`.
    - Exit 0 means open: go to step 6.
    - Exit 1 with `no usage reading and no future reset known`: ask me for the reset time
-     (step 2.4), then run it again. Any other error: stop (step 7).
+     (step 2.4), then run it again. Exit 1 with `7d usage at or above cap`: stop (step 7) with
+     that reason. Any other error: stop (step 7).
    - Exit 3 means wait; its `deadline` is `<D>`. Print
      `abw: waiting for the 5h window (resets <local time>)`. Then start the Monitor tool with
      `timeout_ms: 1800000` and a specific description, re-arming it on each expiry with the same
@@ -176,8 +177,8 @@ node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" start --tickets "$STATE/triage.jso
      ```
 
      It prints one JSON line when it ends. `"open":true` (exit 0) means go to step 6. An
-     `error` of `window did not open` means stop (step 7) with that reason; any other error,
-     `window check failed: <error>`.
+     `error` of `window did not open` or `7d usage at or above cap` means stop (step 7) with
+     that reason; any other error, `window check failed: <error>`.
 
 ### 6. Work the queue
 
