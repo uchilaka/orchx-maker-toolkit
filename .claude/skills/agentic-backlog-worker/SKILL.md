@@ -245,7 +245,9 @@ When an agent's task notification arrives:
 Stop on the first of: the next ticket would breach a cap; a cap is already reached; a ticket
 came back `capped`; no eligible tickets are left; a preflight or window failure.
 
-1. `worker.mjs stop --reason "<reason>"`.
+1. Wait until every in-flight agent has returned and been recorded (step 6), then
+   `worker.mjs stop --reason "<reason>"`. A late notification for a ticket that is no longer
+   `running` is ignored: no `finish`.
 2. `worker.mjs debrief`. It rewrites `~/project-plans/agentic-backlog-worker/RUN_<date>.md`.
 3. Print one line: `abw: stopped (<reason>): <n> draft PRs, <n> hand-offs, run file <path>`.
 

@@ -48,7 +48,7 @@ test('capped deny reason is the exact copy', () => {
   const r = capped({ tool_name: 'Read', tool_input: { file_path: '/x' } });
   assert.strictEqual(
     r.deny,
-    'Usage cap reached (5h 80% ≥ cap 75%). Write your checkpoint to the run state and ticket plan, ' +
+    'Usage cap reached (5h 80% ≥ cap 75%). Write your checkpoint to the ticket plan, ' +
       'commit and push the WIP branch, then return RESULT {"outcome":"capped"}. ' +
       'No other tool calls are allowed.',
   );
@@ -414,6 +414,7 @@ function runHookCommand(env) {
 test('hook command: a working guard exits 0 (proves the harness before the failure cases)', () => {
   const r = runHookCommand({ PATH: process.env.PATH });
   assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stdout, '');
 });
 
 test('hook command: node missing from PATH exits 2 so the call is blocked', () => {

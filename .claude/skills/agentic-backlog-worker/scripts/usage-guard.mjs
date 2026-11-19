@@ -81,8 +81,8 @@ const LINEAR_TOOLS = new Set(['mcp__linear__save_comment', 'mcp__linear__save_is
 const BRANCH = /^[A-Z]+-[0-9]+\//;
 
 const denyReason = (why) =>
-  `Usage cap reached (${why}). Write your checkpoint to the run state and ticket plan, commit and ` +
-  'push the WIP branch, then return RESULT {"outcome":"capped"}. No other tool calls are allowed.';
+  `Usage cap reached (${why}). Write your checkpoint to the ticket plan, commit and push the WIP ` +
+  'branch, then return RESULT {"outcome":"capped"}. No other tool calls are allowed.';
 
 // --- Paths -----------------------------------------------------------------------------------
 

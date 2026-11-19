@@ -375,13 +375,14 @@ function skip(id, opts) {
   return { id, status: 'skipped' };
 }
 
-// Re-reads run.json right before writing and touches only heartbeatAt, so a heartbeat racing a
-// `stop` or `finish` can't write a stale copy back over it. A stopped run is left alone.
+// Reads the clock first, then reads run.json and writes that fresh copy back straight away with
+// only heartbeatAt changed. That keeps the read-to-write gap to one save, but does not close it:
+// a `stop` or `finish` landing inside that gap is still overwritten. A stopped run is left alone.
 function heartbeatCmd() {
+  const t = now();
   const run = requireRun();
   if (!run.active) return { skipped: 'inactive' };
-  heartbeat(run, now());
-  saveRun(stateDir(), run);
+  saveRun(stateDir(), heartbeat(run, t));
   return { heartbeatAt: run.heartbeatAt };
 }
 
