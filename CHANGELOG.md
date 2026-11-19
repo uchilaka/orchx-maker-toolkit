@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`/agentic-backlog-worker`** keeps a triage baseline, so each invocation classifies only Linear tickets that are new or changed since the last one, with a full re-check every 14 days or on `--full`. Repo answers become lasting rules (`repo-rules.yml`), estimates are written back only when they differ, and `TRIAGE.md` is the hand-off: what changed, what's waiting on review, and what's next. New `worker.mjs` commands: `brief`, `delta`, `merge`, `touched`, `rule`. ([LAR-504](https://linear.app/larcity-and-affiliates/issue/LAR-504))
+- **`/agentic-backlog-worker`** keeps a triage baseline, so each invocation classifies only Linear tickets that are new or changed since the last one, with a full re-check every 14 days or on `--full`. Repo answers become lasting rules (`repo-rules.yml`), estimates are filled in only where Linear has none, never overwritten, and `TRIAGE.md` is the hand-off: what changed, what's waiting on review, and what's next. New `worker.mjs` commands: `brief`, `delta`, `merge`, `touched`, `rule`. ([LAR-504](https://linear.app/larcity-and-affiliates/issue/LAR-504))
 
 ### Changed
 - **`/release`** commits the release on a `release/vX.Y.Z` branch and merges it through a PR, since `main` only accepts changes through one. The tag is pushed last, on the release commit, after the merge.
