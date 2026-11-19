@@ -197,6 +197,13 @@ Use Notion instead of `~/project-plans/` only when the Notion tools are loaded a
 repo's memory names a Notion destination. That holds in platform-monorepo, nowhere else
 by default.
 
+## After the threads are drained
+
+When every thread this run handled is fixed, ticketed or answered, and nothing is left
+under "Needs your input", run `/pr-ship-check <n>`. It applies its own gate (the PR's
+`~/pr-reviews` record and its blocking threads) and stops if fix-now work is still open.
+Skip it in route-only mode, since nothing was fixed here.
+
 ## Never
 
 - Post a review, or a top-level PR comment. This skill replies **within** existing threads.
