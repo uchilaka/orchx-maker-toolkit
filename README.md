@@ -150,10 +150,11 @@ preview server). Install asks before adding them to `~/.claude/settings.json`;
 `--with-hooks` or `--no-hooks` answers up front, and without a terminal to ask they're
 skipped. Uninstall removes them.
 
-A skill's `agents/*.md` files are linked into `~/.claude/agents/` on install and unlinked on
-uninstall. A `statusLine` entry in `install/hooks.json` sets Claude Code's status line the same
-way, behind the same prompt (today: `agentic-backlog-worker`, which is globally mounted but not
-in `marketplace.json`).
+A skill's `agents/*.md` files are always linked into `~/.claude/agents/` on install and unlinked
+on uninstall. A `statusLine` entry in `install/hooks.json` is applied behind the same prompt as
+hooks (today: `agentic-backlog-worker`, which is globally mounted but not in `marketplace.json`).
+It is set only when you have no status line of your own; otherwise yours is kept and the worker
+won't start until you point `statusLine` at the skill's `scripts/statusline.sh`.
 
 See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
 checkout rather than a worktree.
