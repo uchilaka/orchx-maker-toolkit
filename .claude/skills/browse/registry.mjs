@@ -4,7 +4,9 @@
 // so readers must check it's still live before trusting it.
 import { mkdirSync, writeFileSync, renameSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 export function stateDir() {
   return process.env.BROWSE_STATE_DIR || join(homedir(), ".claude", "state", "browse");
@@ -46,4 +48,17 @@ export function removeEntry(port, pid) {
   } catch {
     // already gone
   }
+}
+
+// A fingerprint of the server's code: the files serve-md.mjs loads, read from
+// this folder. A running server reports the one it started with in /__health,
+// and browse-ctl.mjs restarts a server whose fingerprint no longer matches the
+// files on disk, since node never reloads a module it has already loaded.
+// The list must name every local file serve-md.mjs imports or reads: one left
+// out can change without the server ever being restarted.
+export function codeVersion() {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const hash = createHash("sha256");
+  for (const f of ["serve-md.mjs", "registry.mjs"]) hash.update(f + "\0").update(readFileSync(join(dir, f)));
+  return hash.digest("hex").slice(0, 16);
 }

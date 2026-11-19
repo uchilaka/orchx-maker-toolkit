@@ -29,7 +29,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { watch, realpathSync } from "node:fs";
 import { join, resolve, relative, extname, basename, dirname, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { writeEntry, removeEntry, ownerFromEnv } from "./registry.mjs";
+import { writeEntry, removeEntry, ownerFromEnv, codeVersion } from "./registry.mjs";
 
 // ---------------------------------------------------------------------------
 // Components — each returns an HTML string styled with Tailwind utilities
@@ -377,8 +377,11 @@ ${main}
   var label = document.getElementById("live-label");
   var es = new EventSource("/__sse");
   es.onmessage = function (e) { if (e.data === "reload") location.reload(); };
-  es.onopen = function () { pill.dataset.state = "on"; label.textContent = "Live"; };
-  es.onerror = function () { pill.dataset.state = "off"; label.textContent = "Disconnected"; };
+  // After a disconnect, reload on reconnect: the server may have been restarted
+  // on newer code, which renders this page differently.
+  var dropped = false;
+  es.onopen = function () { if (dropped) return location.reload(); pill.dataset.state = "on"; label.textContent = "Live"; };
+  es.onerror = function () { dropped = true; pill.dataset.state = "off"; label.textContent = "Disconnected"; };
 
   document.querySelectorAll("[data-copy]").forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -580,6 +583,9 @@ export async function main(args = process.argv.slice(2)) {
     requestedPort = Number(args[portIdx + 1]);
   }
   targetPath = resolve(targetPath);
+  // Taken once, at startup: it describes the code this process is running,
+  // not whatever is on disk now.
+  const CODE_VERSION = codeVersion();
 
   const sseClients = new Set();
 
@@ -649,11 +655,13 @@ export async function main(args = process.argv.slice(2)) {
       return;
     }
 
-    // What this server is serving, and its pid. browse-ctl.mjs checks both
-    // against a registry entry, which ties the entry's pid to this port.
+    // What this server is serving, its pid, and the code it started with.
+    // browse-ctl.mjs checks path and pid against a registry entry, which ties
+    // the entry's pid to this port, and restarts the server when code no
+    // longer matches the files on disk.
     if (pathname === "/__health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ path: targetPath, pid: process.pid }));
+      res.end(JSON.stringify({ path: targetPath, pid: process.pid, code: CODE_VERSION }));
       return;
     }
 
