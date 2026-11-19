@@ -34,6 +34,8 @@ harness to use a tool that isn't there.
 
 ### 2. Gather live state from disk (never guess)
 
+<!-- TODO(LAR-472): say what to do outside a git repo or without a GitHub remote. -->
+
 Run a single read-only check in the working repo:
 
 - `git rev-parse --show-toplevel`, `git branch --show-current`, `git status --short`
@@ -53,6 +55,8 @@ credential store). Name only the file path, or the profile name if the user's se
 has a secret-injection tool.
 
 ### 3. Apply directional rules
+
+<!-- TODO(LAR-473): collapse the per-direction bullets into one rule. -->
 
 Include only the delta that matters for `from -> to`:
 
