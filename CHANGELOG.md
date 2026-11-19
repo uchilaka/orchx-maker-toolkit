@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **`browse`:** raw HTML in rendered markdown shows as text, and links keep only `http`, `https`, `mailto` and relative targets. Requests with a foreign `Host` header get a 403, against DNS rebinding.
 
+### Fixed
+- **`Brewfile` dev-only casks:** `antigravity-cli` and `open-codesign` now install when `MISE_ENV=development`. The old `RAILS_ENV` gate never fired, because Homebrew only passes `HOMEBREW_*` variables into a `Brewfile`; `mise run bundle` now passes `MISE_ENV` in as `HOMEBREW_MISE_ENV`.
+
 ## [0.7.0-alpha] - 2026-04-27
 
 ### Added
