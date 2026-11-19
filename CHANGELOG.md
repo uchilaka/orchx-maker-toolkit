@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`patch-my-hosts`:** syncs `/etc/hosts` with the upstream blocklist while keeping custom edits.
 - **`/publish-prep`:** checks everything that ships for secrets, personal paths, frontmatter and undeclared dependencies; `/release` is gated on it.
 - **`install:claude-global`:** symlinks a repo skill into `~/.claude/skills/`, and offers to install a skill's optional hooks.
+- **`agentic-backlog-worker`:** spends open 5-hour rate-limit windows turning sized LAR backlog tickets into draft PRs, under usage caps enforced by a PreToolUse guard, and never merges. Globally mounted but not in `marketplace.json`. Ships the `agentic-ticket-worker` agent, a SessionStart hook that reports unfinished runs, and a status line, all through `install/hooks.json`.
+- **Installer agents and `statusLine`:** `install:claude-global` always links a skill's `agents/*.md` into `~/.claude/agents/`. Hooks and an optional `statusLine` from `install/hooks.json` go in behind the prompt; the `statusLine` is set only when `settings.json` has none or already has the skill's own, and a foreign one is kept and reported. Uninstall reverses all of it.
 - **Gemini skills as Claude Code skills:** `mount:claude` / `unmount:claude`, with a validator and test harness.
 - **CI** runs the Gemini and Claude test suites; **gitleaks** scans commits before they're made; a PR template with AI-provenance, validation and review-label sections; a playbook on how environment variables reach a `Brewfile` (`docs/brewfile.md`).
 
