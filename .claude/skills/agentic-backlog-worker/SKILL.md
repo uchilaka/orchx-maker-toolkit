@@ -161,8 +161,8 @@ files yourself.
    A non-empty `unjudged` lists `classify` ids you gave no verdict: classify them and merge
    again. Until then they keep their old verdict, and the next delta lists them again.
 6. **Estimate write-back**, also on `--dry-run`, only for the tickets in `merge.estimates`
-   (their Linear estimate is missing or isn't their size). Linear's T-shirt scale stores
-   `points`: S=2, M=3, L=5, XL=8.
+   (their Linear estimate is blank; an existing estimate is never overwritten). Linear's
+   T-shirt scale stores `points`: S=2, M=3, L=5, XL=8.
    - On the first one, call `mcp__linear__save_issue` with its `id` and `estimate: <points>`.
      Then read it back with `mcp__linear__get_issue`.
    - If the write is rejected, or the stored estimate is missing or different, write no more

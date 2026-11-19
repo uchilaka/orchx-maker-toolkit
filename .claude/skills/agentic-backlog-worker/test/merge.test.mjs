@@ -90,15 +90,14 @@ test('queueOrder: themeOrder respected; unknown theme after the last; worked exc
   assert.deepStrictEqual(Object.keys(first).sort(), ['id', 'repo', 'size', 'status', 'theme', 'title']);
 });
 
-test('estimatesNeeded: estimate 3 with size M omitted; null estimate listed with points 2 for S', () => {
+test('estimatesNeeded: only blank estimates are listed; a hand-set one is never overwritten', () => {
+  // LAR-4's estimate (2) disagrees with its size (XL = 8). It was set by hand, so it stays.
   const b = mergeVerdicts(emptyBaseline(),
     [F('LAR-1', { estimate: 3 }), F('LAR-2'), F('LAR-3'), F('LAR-4', { estimate: 2 })], [
       V('LAR-1', { size: 'M' }), V('LAR-2'),
       V('LAR-3', { status: 'skipped', repo: null, reason: 'x' }), V('LAR-4', { size: 'XL' }),
     ], opts());
-  assert.deepStrictEqual(estimatesNeeded(b), [
-    { id: 'LAR-2', size: 'S', points: 2 }, { id: 'LAR-4', size: 'XL', points: 8 },
-  ]);
+  assert.deepStrictEqual(estimatesNeeded(b), [{ id: 'LAR-2', size: 'S', points: 2 }]);
 });
 
 test('computeDelta: seeded null updatedAt + same title → unchanged', () => {

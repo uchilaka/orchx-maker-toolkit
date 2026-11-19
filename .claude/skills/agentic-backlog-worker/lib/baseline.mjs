@@ -248,9 +248,11 @@ export function queueOrder(baseline, themeOrder) {
   return [...queued, ...rest('needs-repo'), ...rest('skipped')];
 }
 
-// Queued and needs-repo tickets whose Linear estimate isn't their size yet. Skipped tickets get
-// none: their size was never the point of the verdict.
+// Queued and needs-repo tickets with no Linear estimate yet. Skipped tickets get none: their
+// size was never the point of the verdict. A ticket that already has an estimate is left alone
+// even when it disagrees with our size: a hand-set estimate is better evidence than ours, and
+// overwriting it would erase the comparison that calibrates sizing (decided 2026-11-19).
 export const estimatesNeeded = (baseline) => Object.entries(baseline.tickets)
   .filter(([, t]) => !t.worked && (t.status === 'queued' || t.status === 'needs-repo')
-    && t.estimate !== POINTS[t.size])
+    && t.estimate == null)
   .map(([id, t]) => ({ id, size: t.size, points: POINTS[t.size] }));
