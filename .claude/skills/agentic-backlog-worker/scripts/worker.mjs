@@ -23,7 +23,7 @@ import {
 } from '../lib/run-state.mjs';
 import {
   loadBaseline, saveBaseline, emptyBaseline, validateFetched, computeDelta, mergeVerdicts,
-  queueOrder, estimatesNeeded,
+  queueOrder, estimatesNeeded, reconcileDue, fetchSince,
 } from '../lib/baseline.mjs';
 import { appendRule, keyProblem, loadRules } from '../lib/repo-rules.mjs';
 import { renderTriage, triagePath } from '../lib/triage-report.mjs';
@@ -432,6 +432,7 @@ function finish(id, opts) {
   setTicket(run, id, patch);
   heartbeat(run, t);
   saveRun(stateDir(), run);
+  markWorked(id, { status: patch.status, pr: patch.pr, runId: run.id });
   // Only a finished ticket's cost is history: a capped, handed-off or failed one stopped partway,
   // and its smaller delta would pull the p75 down until `afford` approved tickets that later
   // breach the cap (live review COR2). The delta still lands on the ticket for the debrief.
@@ -721,6 +722,15 @@ function seed(t, verdicts) {
   return { ...b, reconciledAt: null };
 }
 
+// A worked ticket stays out of the queue and out of reclassification (computeDelta): the ticket
+// agent edits it in Linear, and that is not a change of scope. No baseline, nothing to mark.
+function markWorked(id, worked) {
+  const b = loadBaseline(stateDir());
+  if (!b?.tickets[id]) return;
+  b.tickets[id].worked = Object.fromEntries(Object.entries(worked).filter(([, v]) => v !== undefined));
+  saveBaseline(stateDir(), b);
+}
+
 // Records Linear's updatedAt (and estimate) after this skill's own writes, such as estimate
 // write-back, so the next delta doesn't take them for a change. All or nothing.
 function touched(opts) {
@@ -742,6 +752,43 @@ function touched(opts) {
   }
   saveBaseline(stateDir(), b);
   return { touched: list.length };
+}
+
+// What step 1 needs to know before anything else: whether a baseline exists, whether the next
+// fetch is incremental or a reconcile, and what's waiting on Uche. Every string is cleaned: this
+// JSON is read straight into the orchestrator's context.
+function brief() {
+  const t = now();
+  const config = loadConfig();
+  const b = loadBaseline(stateDir());
+  let run = null;
+  try { run = loadRun(stateDir()); } catch { /* step 1's run.json read reports it */ }
+  const of = (st) => (run?.tickets ?? []).filter((tk) => tk.status === st);
+  const cleanIds = (list) => list.map((id) => clean(id));
+  const queue = b ? queueOrder(b, config.theme_order) : [];
+  const needsRepo = {};
+  for (const e of queue.filter((q) => q.status === 'needs-repo')) {
+    (needsRepo[clean(e.theme ?? 'other')] ??= []).push(clean(e.id));
+  }
+  return {
+    baseline: !!b,
+    triagedAt: b?.triagedAt ?? null,
+    reconcileDue: b ? reconcileDue(b, t, config.full_triage_after_days) : true,
+    fetchSince: b ? fetchSince(b) : null,
+    lastDelta: b?.lastDelta
+      ? Object.fromEntries(Object.entries(b.lastDelta).map(([k, v]) => [k, cleanIds(v)]))
+      : null,
+    waiting: {
+      prs: of('pr').map((tk) => ({ id: clean(tk.id), pr: clean(tk.pr) })),
+      handoffs: of('handoff').map((tk) => ({ id: clean(tk.id), reason: clean(tk.reason) })),
+      capped: cleanIds(of('capped').map((tk) => tk.id)),
+      needsRepo,
+    },
+    nextUp: queue.filter((q) => q.status === 'queued').slice(0, 10)
+      .map((q) => ({ id: clean(q.id), size: q.size, repo: clean(path.basename(q.repo)) })),
+    counts: countBy(queue),
+    triagePath: triagePath(),
+  };
 }
 
 // --- dispatch --------------------------------------------------------------------------------
@@ -785,6 +832,7 @@ async function main(argv) {
     case 'rule': return rule(arg, arg2);
     case 'merge': return merge(opts);
     case 'touched': return touched(opts);
+    case 'brief': return brief();
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }
 }
