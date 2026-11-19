@@ -100,8 +100,9 @@ test('a seven_day window with resets_at <= now reads as null too', () => {
   assert.strictEqual(read(p).sevenDay, null);
 });
 
-test('absent windows read as null and are not capped', () => {
-  const u = read(reading({}));
+test('rate_limits {} reads ok with null windows and is not capped', () => {
+  const u = read(snap({ captured_at: NOW - 60, rate_limits: {} }));
+  assert.strictEqual(u.state, 'ok');
   assert.strictEqual(u.fiveHour, null);
   assert.strictEqual(u.sevenDay, null);
   assert.strictEqual(capStatus(u, cfg).capped, false);
@@ -161,5 +162,13 @@ test('capStatus fails closed on an unknown state and on invalid cap config', () 
   for (const bad of [{ usage_cap_5h: undefined }, { usage_cap_7d: 'x' }]) {
     assert.deepStrictEqual(capStatus(ok, { ...cfg, ...bad }),
       { capped: true, reason: 'invalid cap config' });
+  }
+});
+
+test('an absent or null rate_limits is missing and capped', () => {
+  for (const obj of [{ captured_at: NOW - 60 }, { captured_at: NOW - 60, rate_limits: null }]) {
+    const u = read(snap(obj));
+    assert.strictEqual(u.state, 'missing', JSON.stringify(obj));
+    assert.strictEqual(capStatus(u, cfg).capped, true);
   }
 });

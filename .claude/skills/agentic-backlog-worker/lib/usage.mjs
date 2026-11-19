@@ -34,7 +34,9 @@ export function readUsage({
   if (!snap || typeof snap !== 'object' || !isNum(snap.captured_at)) return { ...MISSING };
   // A capture time in the future (clock skew or corruption) would read fresh forever.
   if (snap.captured_at > now + MAX_FUTURE_SKEW_S) return { ...MISSING };
-  const limits = snap.rate_limits ?? {};
+  // The status line always writes rate_limits (possibly {}); absent or null is corruption.
+  const limits = snap.rate_limits;
+  if (limits === undefined || limits === null) return { ...MISSING };
   if (typeof limits !== 'object' || Array.isArray(limits)) return { ...MISSING };
   const fiveHour = readWindow(limits.five_hour, now);
   const sevenDay = readWindow(limits.seven_day, now);
