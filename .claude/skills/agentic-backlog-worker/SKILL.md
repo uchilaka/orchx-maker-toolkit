@@ -90,6 +90,8 @@ inactive), skip step 7's `stop` so its tickets stay where they are. Otherwise fi
 
 ### 3. Triage
 
+<!-- TODO(LAR-481): triage only tickets and comments from trusted authors. -->
+
 1. For each team in `config.teams`, call `mcp__linear__list_issues` for its unstarted backlog
    (Backlog and Todo). Follow `cursor` while `hasNextPage` is true; never assume one page is
    all of it.
@@ -225,6 +227,7 @@ When an agent's task notification arrives:
 
    If `finish` rejects the RESULT, replace the file with
    `{"outcome":"failed","reason":"invalid RESULT"}` and run it again.
+   <!-- TODO(LAR-482): apply this fallback only to RESULT/--result errors, not --tokens or "not running". -->
 3. Print one event: `abw: <ID> draft PR <url>`, `abw: <ID> handed off: <reason>`, or
    `abw: <ID> capped, checkpoint pushed`.
 4. `worker.mjs heartbeat`.

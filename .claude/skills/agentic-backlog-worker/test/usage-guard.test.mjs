@@ -1,3 +1,5 @@
+// TODO(LAR-483): coverage gaps (hard link on an existing checkpoint, shadowed worktree (d) checks)
+// and fixed-sleep timing across the suite.
 import { test, before } from 'node:test';
 import assert from 'node:assert';
 import {

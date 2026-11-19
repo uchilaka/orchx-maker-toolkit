@@ -29,6 +29,8 @@ const SIZES = ['S', 'M', 'L', 'XL'];
 const OUTCOME_STATUS = { pr: 'pr', handoff: 'handoff', capped: 'capped', failed: 'handoff' };
 const OUTCOMES = Object.keys(OUTCOME_STATUS);
 // Statuses a ticket can be (re)started from: a fresh one, or a resumable one.
+// TODO(LAR-484): move these status sets into lib/run-state.mjs; backlog-worker-status.mjs
+// repeats OPEN and CARRIED by hand.
 const BEGINNABLE = ['queued', 'capped', 'handoff'];
 // A PR url lands in a markdown link in the debrief, so it may not contain link syntax.
 const PR_URL = /^https:\/\/[^\s()<>[\]`|]+$/;
@@ -99,6 +101,8 @@ function userReset() {
   return readWindowFile();
 }
 
+// TODO(LAR-482): a fresh snapshot with no five_hour reads as not open here but as free in
+// afford; settle what a missing window means after the S16 live run.
 function resolveWindow({ usage, cap, t }) {
   const user = userReset();
   const userFuture = user && user.resetsAt > t ? user : null;
@@ -261,6 +265,8 @@ function checkRepo(id, repo, status) {
 // Unacknowledged capped and handed-off tickets of an inactive previous run come first. A triage
 // entry for the same id replaces one only when triage re-queued it (for a hand-off, that means
 // the decision was made); a skip or needs-repo verdict never buries resumable work.
+// TODO(LAR-482): a capped ticket re-triaged as queued loses its status and branch here;
+// only a carried handoff should be replaced by a queued triage entry.
 function carryForward(prev, tickets) {
   if (!prev || prev.active) return tickets;
   const byId = new Map(tickets.map((tk) => [tk.id, tk]));
@@ -433,6 +439,8 @@ function skip(id, opts) {
 // Reads the clock first, then reads run.json and writes that fresh copy back straight away with
 // only heartbeatAt changed. That keeps the read-to-write gap to one save, but does not close it:
 // a `stop` or `finish` landing inside that gap is still overwritten. A stopped run is left alone.
+// TODO(LAR-482): read-modify-write of run.json can overwrite a concurrent stop/finish;
+// move the heartbeat to its own heartbeat.json.
 function heartbeatCmd() {
   const t = now();
   const run = requireRun();

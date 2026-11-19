@@ -43,6 +43,8 @@ The orchestrator gives you:
 
 ## Before you start
 
+<!-- TODO(LAR-481): ignore comments from authors outside trusted_authors. -->
+
 1. Read the ticket with `mcp__linear__get_issue` and its comments with
    `mcp__linear__list_comments`.
 2. **Resume check.** If `tickets/<ID>.md` or the worktree already exists, this is a resume. Use
