@@ -24,9 +24,9 @@ const GROUPS = [
 
 const ticketLine = (t) => `- ${t.id} ${t.title} — ${t.pr || t.branch || '(no branch)'}`;
 
-// The run file is dated by the UTC day the run started.
-const runFile = (run, runsDir) =>
-  path.join(runsDir, `RUN_${new Date(run.startedAt * 1000).toISOString().slice(0, 10)}.md`);
+// The run file the debrief recorded, else the default name: the UTC day the run started.
+const runFile = (run, runsDir) => run.debriefPath
+  || path.join(runsDir, `RUN_${new Date(run.startedAt * 1000).toISOString().slice(0, 10)}.md`);
 
 // Pure: all inputs (clock, state dir, runs dir) are injected. Returns markdown or null.
 export function report({ now, dir, runsDir = defaultRunsDir() }) {
@@ -40,10 +40,11 @@ export function report({ now, dir, runsDir = defaultRunsDir() }) {
   if (!run) return null;
 
   // Queued tickets only count as open while the run is still meant to be working on them.
-  const isOpen = (t) =>
-    ['running', 'capped', 'handoff'].includes(t.status) || (run.active && t.status === 'queued');
+  // Acknowledged tickets were closed out by the user (worker.mjs close-out) and stay quiet.
+  const isOpen = (t) => !t.acknowledged
+    && (['running', 'capped', 'handoff'].includes(t.status) || (run.active && t.status === 'queued'));
   const open = run.tickets.filter(isOpen);
-  const resumable = run.tickets.some((t) => t.status === 'capped' || t.status === 'handoff');
+  const resumable = open.some((t) => t.status === 'capped' || t.status === 'handoff');
   if (!run.active && !resumable) return null;
 
   const live = run.active && now - run.heartbeatAt <= LIVE_HEARTBEAT_S;

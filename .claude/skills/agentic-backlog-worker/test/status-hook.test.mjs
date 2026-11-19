@@ -97,6 +97,20 @@ test('more than 5 tickets are capped with an overflow line naming the run file',
   assert.ok(out.includes(`_…and 3 more — see ${path.join(RUNS, 'RUN_2027-01-15.md')}._`));
 });
 
+test('the overflow line names the run file the debrief recorded', () => {
+  const tickets = Array.from({ length: 6 }, (_, i) => t(`LAR-${i}`, 'capped'));
+  const out = rep({ debriefPath: '/x/RUN_2027-01-15-2.md', tickets });
+  assert.ok(out.includes('see /x/RUN_2027-01-15-2.md._'));
+});
+
+test('acknowledged (closed-out) tickets are not surfaced', () => {
+  const ack = { acknowledged: true };
+  assert.strictEqual(rep({ tickets: [t('LAR-1', 'capped', ack), t('LAR-2', 'handoff', ack)] }), null);
+  const out = rep({ tickets: [t('LAR-1', 'capped', ack), t('LAR-2', 'handoff')] });
+  assert.doesNotMatch(out, /LAR-1/);
+  assert.match(out, /LAR-2/);
+});
+
 test('exactly 5 tickets give no overflow line', () => {
   const tickets = Array.from({ length: 5 }, (_, i) => t(`LAR-${i}`, 'capped'));
   assert.doesNotMatch(rep({ tickets }), /more — see/);

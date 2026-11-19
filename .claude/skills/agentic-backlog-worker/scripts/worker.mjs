@@ -3,7 +3,9 @@
 // Every command prints one JSON object on stdout. Exit 0 on success, 1 with {"error"} on a
 // failure, and `window` exits 3 when the 5h window is not open (for the Monitor until-loop).
 // Times are Unix seconds; ABW_NOW overrides the clock for tests.
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import {
+  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync,
+} from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadConfig, stateDir, runsDir, snapshotPath } from '../lib/config.mjs';
@@ -22,6 +24,11 @@ const BEGINNABLE = ['queued', 'capped', 'handoff'];
 // A PR url lands in a markdown link in the debrief, so it may not contain link syntax.
 const PR_URL = /^https:\/\/[^\s()<>[\]`|]+$/;
 const WINDOW_FILE = 'window.json';
+// Tickets that survive into the next run until worked or closed out.
+const CARRIED = ['capped', 'handoff'];
+// Only a skipped or needs-repo ticket may lack a repo; every other one must name one.
+const REPOLESS = ['skipped', 'needs-repo'];
+const reposRoot = () => process.env.ABW_REPOS_ROOT || '/opt/Developer';
 
 class CliError extends Error {}
 const fail = (msg) => { throw new CliError(msg); };
@@ -113,7 +120,10 @@ function preflight(opts) {
     usage: ctx.usage,
     capped: ctx.cap.capped,
     cappedReason: ctx.cap.reason,
-    sevenDayBlocked: Boolean(ctx.usage.sevenDay && ctx.usage.sevenDay.pct >= ctx.config.usage_cap_7d),
+    // null = unknown: a missing or stale reading can't say either way (needsResetTime handles it).
+    sevenDayBlocked: ctx.usage.state === 'ok'
+      ? Boolean(ctx.usage.sevenDay && ctx.usage.sevenDay.pct >= ctx.config.usage_cap_7d)
+      : null,
     window,
     needsResetTime: ['missing', 'stale'].includes(ctx.usage.state) && !userFuture,
     estimatesBlocked: estimates === 'disabled' ? ESTIMATES_BLOCKED : null,
@@ -147,12 +157,60 @@ function setReset(raw) {
   return { ...window, stored: 'window' };
 }
 
-function windowCmd() {
+// Exit 3 only while there is something to wait for. Without a usage reading and with no future
+// reset, waiting can never end, so it is an error; so is still being closed past --deadline.
+function windowCmd(opts) {
+  let deadline = null;
+  if (opts.deadline !== undefined) {
+    if (!/^\d+$/.test(opts.deadline)) fail('--deadline must be Unix seconds');
+    deadline = Number(opts.deadline);
+  }
   const ctx = context();
   const { window } = resolveWindow(ctx);
   const open = Boolean(window?.open);
+  if (!open && ctx.usage.state !== 'ok' && !(window?.resetsAt > ctx.t)) {
+    fail('no usage reading and no future reset known');
+  }
+  if (!open && deadline !== null && ctx.t >= deadline) fail('window did not open');
   const reason = open ? '' : ctx.cap.reason || 'no open 5h window yet';
   return { out: { open, reason, resetsAt: window?.resetsAt ?? null }, code: open ? 0 : 3 };
+}
+
+// The repo is where a ticket agent will create worktrees and run code, and the triage that names
+// it read untrusted ticket text. So it must resolve (symlinks and `..` included) to a git repo
+// under the repos root. Returns the resolved path.
+function checkRepo(id, repo, status) {
+  if (repo === null && REPOLESS.includes(status)) return null;
+  if (typeof repo !== 'string' || !path.isAbsolute(repo)) {
+    fail(`${id}: repo must be an absolute path (null only when ${REPOLESS.join(' or ')})`);
+  }
+  let real;
+  let root;
+  try {
+    real = realpathSync(repo);
+    root = realpathSync(reposRoot());
+  } catch {
+    fail(`${id}: repo does not exist: ${repo}`);
+  }
+  if (!real.startsWith(root + path.sep)) fail(`${id}: repo is not under ${reposRoot()}`);
+  if (!existsSync(path.join(real, '.git'))) fail(`${id}: repo has no .git: ${repo}`);
+  return real;
+}
+
+// Unacknowledged capped and handed-off tickets of an inactive previous run come first. A triage
+// entry for the same id replaces one only when triage re-queued it (for a hand-off, that means
+// the decision was made); a skip or needs-repo verdict never buries resumable work.
+function carryForward(prev, tickets) {
+  if (!prev || prev.active) return tickets;
+  const byId = new Map(tickets.map((tk) => [tk.id, tk]));
+  const carried = prev.tickets
+    .filter((tk) => CARRIED.includes(tk.status) && !tk.acknowledged)
+    .filter((tk) => byId.get(tk.id)?.status !== 'queued')
+    // Usage figures belong to the previous run's window; keep the work pointers only.
+    .map(({ start5h, end5h, delta5h, startResetsAt, shared, tokens, ...tk }) =>
+      ({ ...tk, carriedFrom: prev.id }));
+  const carriedIds = new Set(carried.map((tk) => tk.id));
+  return [...carried, ...tickets.filter((tk) => !carriedIds.has(tk.id))];
 }
 
 function validateTickets(list) {
@@ -166,9 +224,8 @@ function validateTickets(list) {
     seen.add(id);
     if (typeof title !== 'string') fail(`${id}: title must be a string`);
     if (typeof size !== 'string') fail(`${id}: size must be a string`);
-    if (repo !== null && typeof repo !== 'string') fail(`${id}: repo must be a string or null`);
     if (!TICKET_STATUSES.includes(status)) fail(`${id}: status must be one of ${TICKET_STATUSES}`);
-    const out = { id, title, size, repo, status };
+    const out = { id, title, size, repo: checkRepo(id, repo, status), status };
     if (theme !== undefined) out.theme = String(theme);
     if (reason !== undefined) out.reason = String(reason);
     return out;
@@ -177,14 +234,15 @@ function validateTickets(list) {
 
 function start(opts) {
   if (!opts.tickets) fail('usage: start --tickets <file.json>');
-  if (activeRun()) fail('a run is already active: resume it, or stop it first');
+  const prev = loadRun(stateDir());
+  if (prev?.active) fail('a run is already active: resume it, or stop it first');
   let list;
   try {
     list = JSON.parse(readFileSync(opts.tickets, 'utf8'));
   } catch (err) {
     fail(`cannot read tickets: ${err.message}`);
   }
-  const tickets = validateTickets(list);
+  const tickets = carryForward(prev, validateTickets(list));
   const { t, usage } = context();
   const stashed = readWindowFile();
   const five = fresh5h(usage);
@@ -279,7 +337,8 @@ function finish(id, opts) {
   const end5h = five ? five.pct : null;
   // A window that reset mid-ticket makes the delta meaningless, so it is not recorded.
   const sameWindow = five && ticket.startResetsAt === five.resetsAt;
-  const measurable = ticket.start5h !== null && end5h !== null && sameWindow;
+  // --no-cost: a synthetic result (crash resume) says nothing about what the ticket cost.
+  const measurable = !opts['no-cost'] && ticket.start5h !== null && end5h !== null && sameWindow;
   const delta5h = measurable ? Math.max(0, end5h - ticket.start5h) : null;
   const reason = result.outcome === 'failed' ? `failed: ${result.reason ?? ''}`.trim() : result.reason;
   const patch = {
@@ -317,7 +376,33 @@ function stop(opts) {
   return { id: run.id, active: false, stopReason: run.stopReason };
 }
 
+// The user has seen the capped and handed-off tickets and doesn't want them resumed. They keep
+// their status (the record stays true) but stop being surfaced or carried into the next run.
+function closeOut() {
+  const run = requireRun();
+  if (run.active) fail('the run is still active: stop it first');
+  const acknowledged = [];
+  for (const tk of run.tickets) {
+    if (CARRIED.includes(tk.status) && !tk.acknowledged) {
+      tk.acknowledged = true;
+      acknowledged.push(tk.id);
+    }
+  }
+  saveRun(stateDir(), run);
+  return { id: run.id, acknowledged };
+}
+
 // --- debrief ---------------------------------------------------------------------------------
+
+// RUN_<date>.md, or -2, -3 … when another run of the same day already wrote that file. The choice
+// is stored on the run so every later debrief of it rewrites the same file.
+function debriefPath(run, date) {
+  if (run.debriefPath) return run.debriefPath;
+  for (let n = 1; ; n += 1) {
+    const file = path.join(runsDir(), `RUN_${date}${n === 1 ? '' : `-${n}`}.md`);
+    if (!existsSync(file)) return file;
+  }
+}
 
 // Ticket ids, titles, reasons and branches come from Linear or an agent: untrusted. One line,
 // no HTML, no code spans, and nothing that can split a table cell or open a link.
@@ -344,6 +429,7 @@ function trackerRow(tk) {
   else if (tk.status === 'running') what = 'running, no result recorded';
   else what = `${tk.status === 'capped' ? 'capped' : 'hand-off'}: ${clean(tk.reason) || 'no reason given'}`;
   if (tk.branch) what += ` · branch ${clean(tk.branch)}`;
+  if (tk.acknowledged) what += ' · closed out';
   const delta = Number.isFinite(tk.delta5h) ? `+${tk.delta5h}%` : 'n/a';
   return `- ${box} **${clean(tk.id)}** ${clean(tk.title)} — ${what} · 5h ${delta}`;
 }
@@ -351,7 +437,9 @@ function trackerRow(tk) {
 function debrief() {
   const run = requireRun();
   const date = isoDate(run.startedAt);
-  const unresolved = run.tickets.some((tk) => ['capped', 'handoff', 'running'].includes(tk.status));
+  // Closed-out tickets no longer hold the run open.
+  const unresolved = run.tickets.some((tk) =>
+    ['capped', 'handoff', 'running'].includes(tk.status) && !tk.acknowledged);
   const status = !run.active && !unresolved
     ? `RESOLVED (${isoDate(run.stoppedAt ?? now())})`
     : 'IN PROGRESS';
@@ -400,8 +488,12 @@ function debrief() {
     `- 7d usage: ${pctText(start.sevenDay)} at start, ${pctText(end.sevenDay)} at end`,
   ];
   mkdirSync(runsDir(), { recursive: true });
-  const file = path.join(runsDir(), `RUN_${date}.md`);
+  const file = debriefPath(run, date);
   writeFileSync(file, `${lines.join('\n')}\n`);
+  if (run.debriefPath !== file) {
+    run.debriefPath = file;
+    saveRun(stateDir(), run);
+  }
   return { path: file, status };
 }
 
@@ -417,19 +509,22 @@ function main(argv) {
       tokens: { type: 'string' },
       reason: { type: 'string' },
       'linear-estimates': { type: 'string' },
+      deadline: { type: 'string' },
+      'no-cost': { type: 'boolean' },
     },
   });
   const [cmd, arg] = positionals;
   switch (cmd) {
     case 'preflight': return { out: preflight(opts) };
     case 'set-reset': return { out: setReset(arg) };
-    case 'window': return windowCmd();
+    case 'window': return windowCmd(opts);
     case 'start': return { out: start(opts) };
     case 'afford': return { out: afford(arg) };
     case 'begin': return { out: begin(arg) };
     case 'finish': return { out: finish(arg, opts) };
     case 'heartbeat': return { out: heartbeatCmd() };
     case 'stop': return { out: stop(opts) };
+    case 'close-out': return { out: closeOut() };
     case 'debrief': return { out: debrief() };
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }

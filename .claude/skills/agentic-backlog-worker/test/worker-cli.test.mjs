@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 
 const CLI = fileURLToPath(new URL('../scripts/worker.mjs', import.meta.url));
 const NOW = 1_800_000_000; // 2027-01-15T08:00:00Z
+// Stands in for /opt/Developer: `start` only accepts repos under it that contain .git.
+const REPOS = realpathSync(mkdtempSync(path.join(tmpdir(), 'abw-repos-')));
+const REPO = path.join(REPOS, 'x');
+mkdirSync(path.join(REPO, '.git'), { recursive: true });
+mkdirSync(path.join(REPOS, 'not-a-repo'));
 const ESTIMATES_MSG =
   'Turn on T-shirt estimates: Linear → Settings → Teams → LarCity Engineering → Estimates';
 
@@ -25,6 +30,7 @@ function sandbox() {
     ABW_SNAPSHOT: path.join(root, 'snap.json'),
     ABW_CONFIG: path.join(root, 'config.yml'),
     ABW_NOW: String(NOW),
+    ABW_REPOS_ROOT: REPOS,
   };
   mkdirSync(env.HOME, { recursive: true });
   const box = {
@@ -54,7 +60,7 @@ function sandbox() {
 }
 
 const T = (id, extra = {}) => ({
-  id, title: `Ticket ${id}`, size: 'S', repo: '/opt/Developer/x', status: 'queued', ...extra,
+  id, title: `Ticket ${id}`, size: 'S', repo: REPO, status: 'queued', ...extra,
 });
 
 function started(list = [T('LAR-1'), T('LAR-2')], snap = { five: 10, seven: 20 }) {
@@ -96,6 +102,13 @@ test('preflight: a missing snapshot needs a reset time', () => {
   assert.strictEqual(r.json.usage.state, 'missing');
   assert.strictEqual(r.json.needsResetTime, true);
   assert.strictEqual(r.json.window, null);
+  assert.strictEqual(r.json.sevenDayBlocked, null);
+});
+
+test('preflight: sevenDayBlocked is null (unknown) on a stale reading', () => {
+  const box = sandbox();
+  box.snapshot({ five: 10, seven: 90, capturedAt: NOW - 3600 });
+  assert.strictEqual(box.run(['preflight']).json.sevenDayBlocked, null);
 });
 
 test('preflight: a stale snapshot with a future user reset does not need a reset time', () => {
@@ -173,8 +186,29 @@ test('window: exits 3 when capped and 0 when open', () => {
   assert.strictEqual(box.run(['window'], { ABW_NOW: 'x' }).code, 1);
 });
 
-test('window: a missing snapshot is closed (fail closed)', () => {
-  assert.strictEqual(sandbox().run(['window']).code, 3);
+test('window: no usage reading and no future reset is an error, not an endless wait', () => {
+  const box = sandbox();
+  const none = box.run(['window']);
+  assert.strictEqual(none.code, 1);
+  assert.strictEqual(none.json.error, 'no usage reading and no future reset known');
+  // A future user reset makes it a wait; once that reset passes with still no reading, an error.
+  box.run(['set-reset', String(NOW + 600)]);
+  assert.strictEqual(box.run(['window']).code, 3);
+  const after = box.run(['window'], { ABW_NOW: String(NOW + 700) });
+  assert.strictEqual(after.code, 1);
+  assert.strictEqual(after.json.error, 'no usage reading and no future reset known');
+});
+
+test('window --deadline: still closed at the deadline is an error', () => {
+  const box = sandbox();
+  box.snapshot({ five: 80 });
+  assert.strictEqual(box.run(['window', '--deadline', String(NOW + 1)]).code, 3);
+  const late = box.run(['window', '--deadline', String(NOW)]);
+  assert.strictEqual(late.code, 1);
+  assert.strictEqual(late.json.error, 'window did not open');
+  box.snapshot({ five: 10 });
+  assert.strictEqual(box.run(['window', '--deadline', String(NOW - 1)]).code, 0);
+  assert.strictEqual(box.run(['window', '--deadline', 'soon']).code, 1);
 });
 
 // --- start -----------------------------------------------------------------------------------
@@ -400,4 +434,89 @@ test('unknown command and no run both exit 1 with JSON errors', () => {
     assert.strictEqual(r.code, 1, args.join(' '));
     assert.ok(r.json && r.json.error, args.join(' '));
   }
+});
+
+// --- fix round 1 -----------------------------------------------------------------------------
+
+test('start: repo must be null (needs-repo or skipped) or a git repo under the repos root', () => {
+  const box = sandbox();
+  const bad = [
+    T('LAR-1', { repo: path.join(REPOS, 'not-a-repo') }), // no .git
+    T('LAR-1', { repo: tmpdir() }), // outside the root
+    T('LAR-1', { repo: path.join(REPO, '..', '..') }), // escapes via ..
+    T('LAR-1', { repo: null }), // queued needs a repo
+    T('LAR-1', { repo: 'relative/x' }),
+  ];
+  for (const tk of bad) {
+    const r = box.run(['start', '--tickets', box.tickets([tk])]);
+    assert.strictEqual(r.code, 1, String(tk.repo));
+    assert.match(r.json.error, /repo/);
+  }
+  const ok = [T('LAR-1'), T('LAR-2', { status: 'skipped', repo: null }), T('LAR-3', { status: 'needs-repo', repo: null })];
+  assert.strictEqual(box.run(['start', '--tickets', box.tickets(ok)]).code, 0);
+});
+
+test('finish --no-cost records the outcome but no cost sample', () => {
+  const box = started();
+  box.run(['begin', 'LAR-1']);
+  box.snapshot({ five: 30 });
+  const r = box.run(['finish', 'LAR-1', '--no-cost', '--result',
+    '{"outcome":"capped","reason":"orchestrator stopped mid-ticket"}']);
+  assert.deepStrictEqual([r.json.status, r.json.recorded], ['capped', false]);
+  assert.ok(!existsSync(path.join(box.env.ABW_STATE_DIR, 'history.json')));
+});
+
+test('start: carries forward capped and handed-off tickets from an inactive run', () => {
+  const box = started([T('LAR-1'), T('LAR-2'), T('LAR-3'), T('LAR-4')]);
+  for (const [id, result] of [
+    ['LAR-1', '{"outcome":"capped","reason":"cap","branch":"LAR-1/a"}'],
+    ['LAR-2', '{"outcome":"handoff","reason":"pick one"}'],
+    ['LAR-3', '{"outcome":"handoff","reason":"decided now"}'],
+    ['LAR-4', '{"outcome":"pr","pr":"https://github.com/o/r/pull/4"}'],
+  ]) {
+    box.run(['begin', id]);
+    box.run(['finish', id, '--result', result]);
+  }
+  box.run(['stop', '--reason', 'capped']);
+  const oldId = box.runJson().id;
+  // Triage skips LAR-2 (agent-handoff label) and re-queues LAR-3 because the decision is made.
+  const triage = [T('LAR-2', { status: 'skipped', repo: null }), T('LAR-3'), T('LAR-9')];
+  const r = box.run(['start', '--tickets', box.tickets(triage)], { ABW_NOW: String(NOW + 60) });
+  assert.strictEqual(r.code, 0, r.stdout);
+  const run = box.runJson();
+  assert.deepStrictEqual(run.tickets.map((t) => [t.id, t.status]),
+    [['LAR-1', 'capped'], ['LAR-2', 'handoff'], ['LAR-3', 'queued'], ['LAR-9', 'queued']]);
+  assert.strictEqual(run.tickets[0].branch, 'LAR-1/a');
+  assert.strictEqual(run.tickets[0].carriedFrom, oldId);
+  assert.strictEqual(run.tickets[2].carriedFrom, undefined);
+});
+
+test('close-out acknowledges capped and handoff tickets so they are not carried again', () => {
+  const box = started();
+  box.run(['begin', 'LAR-1']);
+  box.run(['finish', 'LAR-1', '--result', '{"outcome":"capped","reason":"cap"}']);
+  assert.strictEqual(box.run(['close-out']).code, 1); // still active
+  box.run(['stop', '--reason', 'capped']);
+  const r = box.run(['close-out']);
+  assert.deepStrictEqual(r.json.acknowledged, ['LAR-1']);
+  const t = box.runJson().tickets[0];
+  assert.deepStrictEqual([t.status, t.acknowledged], ['capped', true]);
+  assert.match(readFileSync(box.run(['debrief']).json.path, 'utf8'), /^## Status: RESOLVED/m);
+  box.run(['start', '--tickets', box.tickets([T('LAR-9')])]);
+  assert.deepStrictEqual(box.runJson().tickets.map((tk) => tk.id), ['LAR-9']);
+});
+
+test('debrief: a second run on the same day gets RUN_<date>-2.md and keeps it', () => {
+  const box = started([T('LAR-1')]);
+  box.run(['stop', '--reason', 'first']);
+  const first = box.run(['debrief']).json.path;
+  assert.ok(first.endsWith('RUN_2027-01-15.md'));
+  assert.strictEqual(box.run(['debrief']).json.path, first); // same run reuses its file
+  box.run(['start', '--tickets', box.tickets([T('LAR-2')])], { ABW_NOW: String(NOW + 60) });
+  box.run(['stop', '--reason', 'second']);
+  const second = box.run(['debrief']).json.path;
+  assert.ok(second.endsWith('RUN_2027-01-15-2.md'), second);
+  assert.strictEqual(box.runJson().debriefPath, second);
+  assert.strictEqual(box.run(['debrief']).json.path, second);
+  assert.match(readFileSync(first, 'utf8'), /first/);
 });
