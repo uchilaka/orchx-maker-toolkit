@@ -111,6 +111,15 @@ A part can ship ahead only if all of these hold. Check each; don't assume:
   git worktree remove --force "$TMPDIR/ship-check-<n>"
   ```
 
+  **If the repo has its own worktree tool, use it instead of `git worktree add`.** Check
+  its `CLAUDE.md` or `AGENTS.md` first. A git-crypt repo, for example, names a script
+  (such as `bin/worktree-init`) because a plain `git worktree add` fails on an encrypted
+  file. Never work around that by disabling or faking content filters
+  (`-c filter.<name>.required=false`, `smudge=cat`), which skips the repo's own decryption
+  check. Remove what the tool created afterwards, including any branch it made. If the tool
+  can't give you a throwaway checkout at `<baseOid>`, report the candidate as *unproven* and
+  give the commands instead.
+
   `<baseOid>` comes from the JSON, so no branch name reaches the shell. Report the command and its result. If it fails or
   conflicts, it isn't a spin-off.
 
@@ -153,7 +162,8 @@ Changelog layout). Otherwise skip this step and say so.
      `**<name>:**` lead followed by a sentence or two on what changed for someone using it.
      Commit it on the PR branch as `📝 docs(changelog): <summary> (#<n>)` and push
      normally, never with force. Always work in a throwaway worktree, never the PR's
-     own checkout, which may hold the user's staged work from another session:
+     own checkout, which may hold the user's staged work from another session. If the repo
+     has its own worktree tool, use it here too (see "Passes alone" above):
 
      ```bash
      git worktree add -q --detach "$TMPDIR/changelog-<n>" <headOid>
