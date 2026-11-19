@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync,
 } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,20 @@ function sandbox() {
       let json = null;
       try { json = JSON.parse(r.stdout); } catch { /* asserted by callers */ }
       return { code: r.status, json, stdout: r.stdout, stderr: r.stderr };
+    },
+    // For the long-running loops: resolves on exit, so the test can act while it runs.
+    spawn(args, extraEnv = {}) {
+      const child = spawn('node', [CLI, ...args], { env: { ...env, ...extraEnv } });
+      let stdout = '';
+      child.stdout.on('data', (d) => { stdout += d; });
+      const done = new Promise((resolve) => {
+        child.on('close', (code) => {
+          let json = null;
+          try { json = JSON.parse(stdout); } catch { /* asserted by callers */ }
+          resolve({ code, json, stdout });
+        });
+      });
+      return { child, done };
     },
     snapshot({ five, seven, capturedAt = NOW - 30, fiveResets = NOW + 3600 } = {}) {
       const limits = {};
@@ -208,6 +222,66 @@ test('window --deadline: still closed at the deadline is an error', () => {
   box.snapshot({ five: 10 });
   assert.strictEqual(box.run(['window', '--deadline', String(NOW - 1)]).code, 0);
   assert.strictEqual(box.run(['window', '--deadline', 'soon']).code, 1);
+});
+
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+test('window --wait: polls until the window opens, prints once and exits 0', async () => {
+  const box = sandbox();
+  box.snapshot({ five: 80 });
+  const { done } = box.spawn(['window', '--wait'], { ABW_POLL_S: '0.05' });
+  await sleep(300);
+  box.snapshot({ five: 10 });
+  const r = await done;
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.strictEqual(r.stdout.trim().split('\n').length, 1);
+  assert.deepStrictEqual(r.json, { open: true, reason: '', resetsAt: NOW + 3600 });
+});
+
+test('window --wait: exits 1 when the deadline passes, or at once on an error', async () => {
+  const box = sandbox();
+  // The real clock, so the deadline can arrive while it polls.
+  const t = Math.floor(Date.now() / 1000);
+  box.snapshot({ five: 80, capturedAt: t, fiveResets: t + 3600 });
+  const late = await box.spawn(['window', '--wait', '--deadline', String(t + 1)],
+    { ABW_NOW: '', ABW_POLL_S: '0.1' }).done;
+  assert.strictEqual(late.code, 1, late.stdout);
+  assert.deepStrictEqual(late.json, { error: 'window did not open' });
+  const none = await sandbox().spawn(['window', '--wait'], { ABW_POLL_S: '0.05' }).done;
+  assert.strictEqual(none.code, 1);
+  assert.strictEqual(none.json.error, 'no usage reading and no future reset known');
+});
+
+test('window --wait: without --deadline it keeps waiting while the window stays closed', async () => {
+  // ABW_NOW holds the clock at NOW, so the default deadline (reset + 900s) never arrives.
+  const box = sandbox();
+  box.snapshot({ five: 80 });
+  const { child, done } = box.spawn(['window', '--wait'], { ABW_POLL_S: '0.05' });
+  let exited = false;
+  done.then(() => { exited = true; });
+  await sleep(400);
+  assert.strictEqual(exited, false);
+  child.kill();
+  assert.strictEqual((await done).stdout, '');
+});
+
+test('heartbeat --loop: beats until the run is stopped, then exits 0', async () => {
+  const box = started();
+  const { done } = box.spawn(['heartbeat', '--loop'],
+    { ABW_NOW: String(NOW + 60), ABW_HEARTBEAT_S: '0.05' });
+  await sleep(300);
+  assert.strictEqual(box.runJson().heartbeatAt, NOW + 60);
+  // A beat can land between stop's read and write (the documented race), so stop until it holds.
+  let exited = false;
+  done.then(() => { exited = true; });
+  for (let i = 0; i < 50 && !exited; i++) {
+    if (box.runJson().active) box.run(['stop', '--reason', 'done']);
+    await sleep(100);
+  }
+  const r = await done;
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.deepStrictEqual(r.json, { skipped: 'inactive' });
+  assert.strictEqual(box.runJson().active, false);
 });
 
 // --- start -----------------------------------------------------------------------------------

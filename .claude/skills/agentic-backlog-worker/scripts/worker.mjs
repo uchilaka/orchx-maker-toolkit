@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Deterministic CLI the /agentic-backlog-worker orchestrator calls between its judgment steps.
 // Every command prints one JSON object on stdout. Exit 0 on success, 1 with {"error"} on a
-// failure, and `window` exits 3 when the 5h window is not open (for the Monitor until-loop).
-// Times are Unix seconds; ABW_NOW overrides the clock for tests.
+// failure, and a one-shot `window` exits 3 when the 5h window is not open. `window --wait` and
+// `heartbeat --loop` keep running and print once when they end.
+// Times are Unix seconds; ABW_NOW overrides the clock for tests, and ABW_POLL_S and
+// ABW_HEARTBEAT_S shorten the two loops' intervals.
 import {
   readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync,
 } from 'node:fs';
@@ -22,8 +24,8 @@ const estimatesBlocked = (teams) =>
   `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
 const TICKET_ID = /^[A-Z]+-[0-9]+$/;
 const SIZES = ['S', 'M', 'L', 'XL'];
-const OUTCOMES = ['pr', 'handoff', 'capped', 'failed'];
 const OUTCOME_STATUS = { pr: 'pr', handoff: 'handoff', capped: 'capped', failed: 'handoff' };
+const OUTCOMES = Object.keys(OUTCOME_STATUS);
 // Statuses a ticket can be (re)started from: a fresh one, or a resumable one.
 const BEGINNABLE = ['queued', 'capped', 'handoff'];
 // A PR url lands in a markdown link in the debrief, so it may not contain link syntax.
@@ -31,6 +33,9 @@ const PR_URL = /^https:\/\/[^\s()<>[\]`|]+$/;
 const WINDOW_FILE = 'window.json';
 // Tickets that survive into the next run until worked or closed out.
 const CARRIED = ['capped', 'handoff'];
+// Tickets that keep a run unresolved, and those that get a tracker row in the debrief.
+const OPEN = [...CARRIED, 'running'];
+const WORKED = [...OPEN, 'pr'];
 // Only a skipped or needs-repo ticket may lack a repo; every other one must name one.
 const REPOLESS = ['skipped', 'needs-repo'];
 const reposRoot = () => process.env.ABW_REPOS_ROOT || '/opt/Developer';
@@ -38,12 +43,25 @@ const reposRoot = () => process.env.ABW_REPOS_ROOT || '/opt/Developer';
 class CliError extends Error {}
 const fail = (msg) => { throw new CliError(msg); };
 
+// A non-negative integer given as text, or a failure with `what` as the message.
+function uint(raw, what) {
+  if (!/^\d+$/.test(raw)) fail(what);
+  return Number(raw);
+}
+
 function now() {
   const raw = process.env.ABW_NOW;
   if (raw === undefined || raw === '') return Math.floor(Date.now() / 1000);
-  if (!/^\d+$/.test(raw)) fail('ABW_NOW must be Unix seconds');
-  return Number(raw);
+  return uint(raw, 'ABW_NOW must be Unix seconds');
 }
+
+// Loop interval in ms: the env override (seconds, fractions allowed) when it is a positive
+// number, else the default.
+function intervalMs(envVar, defaultS) {
+  const s = Number(process.env[envVar]);
+  return (Number.isFinite(s) && s > 0 ? s : defaultS) * 1000;
+}
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 function context() {
   const config = loadConfig();
@@ -123,8 +141,8 @@ function preflight(opts) {
 
 function parseReset(raw) {
   if (raw === undefined) fail('usage: set-reset <ISO-8601 | epoch seconds>');
-  if (/^\d+$/.test(raw)) return Number(raw);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw)) fail(`not an ISO-8601 time: ${raw}`);
+  // Anything not shaped like ISO-8601 must be epoch seconds.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw)) return uint(raw, `not an ISO-8601 time: ${raw}`);
   const ms = Date.parse(raw);
   if (Number.isNaN(ms)) fail(`not an ISO-8601 time: ${raw}`);
   return Math.floor(ms / 1000);
@@ -145,14 +163,9 @@ function setReset(raw) {
   return { ...window, stored: 'window' };
 }
 
-// Exit 3 only while there is something to wait for. Without a usage reading and with no future
-// reset, waiting can never end, so it is an error; so is still being closed past --deadline.
-function windowCmd(opts) {
-  let deadline = null;
-  if (opts.deadline !== undefined) {
-    if (!/^\d+$/.test(opts.deadline)) fail('--deadline must be Unix seconds');
-    deadline = Number(opts.deadline);
-  }
+// Without a usage reading and with no future reset, waiting can never end, so it is an error; so
+// is still being closed at or past the deadline.
+function checkWindow(deadline) {
   const ctx = context();
   const { window } = resolveWindow(ctx);
   const open = Boolean(window?.open);
@@ -161,7 +174,26 @@ function windowCmd(opts) {
   }
   if (!open && deadline !== null && ctx.t >= deadline) fail('window did not open');
   const reason = open ? '' : ctx.cap.reason || 'no open 5h window yet';
-  return { out: { open, reason, resetsAt: window?.resetsAt ?? null }, code: open ? 0 : 3 };
+  return { t: ctx.t, out: { open, reason, resetsAt: window?.resetsAt ?? null } };
+}
+
+// One-shot: exit 0 when open, 3 while there is something to wait for. --wait re-checks every
+// 60s until the window opens (exit 0) or the deadline passes (exit 1). Without --deadline, it
+// waits until 15 minutes after the known reset, or 5h15m from the first check when none is known.
+async function windowCmd(opts) {
+  let deadline = opts.deadline === undefined
+    ? null
+    : uint(opts.deadline, '--deadline must be Unix seconds');
+  for (;;) {
+    const { t, out } = checkWindow(deadline);
+    if (out.open) return out;
+    if (!opts.wait) {
+      process.exitCode = 3;
+      return out;
+    }
+    deadline ??= (out.resetsAt ?? t + 18000) + 900;
+    await sleep(intervalMs('ABW_POLL_S', 60));
+  }
 }
 
 // The repo is where a ticket agent will create worktrees and run code, and the triage that names
@@ -268,10 +300,10 @@ function afford(id) {
   if (cap.capped) return { ...base, ok: false, reason: cap.reason };
   // State is 'ok' here; no 5h window means it has reset and nothing is used yet.
   const current5h = pct(usage.fiveHour) ?? 0;
-  const res = affordable({
+  const { ok, projected } = affordable({
     current5h, size: ticket.size, inFlight, history: loadHistory(stateDir()), config,
   });
-  return { id, ok: res.ok, projected: res.projected, current5h, size: ticket.size, inFlight };
+  return { ...base, ok, projected, current5h };
 }
 
 function begin(id) {
@@ -319,11 +351,9 @@ function finish(id, opts) {
   const ticket = findTicket(run, id);
   if (ticket.status !== 'running') fail(`${id} is ${ticket.status}, not running`);
   const result = parseResult(opts.result);
-  let tokens = null;
-  if (opts.tokens !== undefined) {
-    if (!/^\d+$/.test(opts.tokens)) fail('--tokens must be a non-negative integer');
-    tokens = Number(opts.tokens);
-  }
+  const tokens = opts.tokens === undefined
+    ? null
+    : uint(opts.tokens, '--tokens must be a non-negative integer');
   const { t, usage } = context();
   const five = fresh5h(usage);
   const end5h = five ? five.pct : null;
@@ -369,6 +399,15 @@ function heartbeatCmd() {
   if (!run.active) return { skipped: 'inactive' };
   saveRun(stateDir(), heartbeat(run, t));
   return { heartbeatAt: run.heartbeatAt };
+}
+
+// --loop: a heartbeat every 5 minutes until the run is no longer active, then exit 0.
+async function heartbeatLoop() {
+  for (;;) {
+    const out = heartbeatCmd();
+    if (out.skipped) return out;
+    await sleep(intervalMs('ABW_HEARTBEAT_S', 300));
+  }
 }
 
 function stop(opts) {
@@ -420,7 +459,6 @@ function debriefPath(run) {
 const cell = (s) => clean(s) || '—';
 const pctText = (v) => (v === null || v === undefined ? 'n/a' : `${v}%`);
 
-const WORKED = ['running', 'pr', 'handoff', 'capped'];
 const SUMMARY_LABELS = [
   ['pr', 'draft PR'], ['handoff', 'handed off'], ['capped', 'capped'], ['running', 'running'],
   ['queued', 'queued'], ['skipped', 'skipped'], ['needs-repo', 'needs repo'],
@@ -442,15 +480,14 @@ function debrief() {
   const run = requireRun();
   const date = isoDate(run.startedAt);
   // Closed-out tickets no longer hold the run open.
-  const unresolved = run.tickets.some((tk) =>
-    ['capped', 'handoff', 'running'].includes(tk.status) && !tk.acknowledged);
+  const unresolved = run.tickets.some((tk) => OPEN.includes(tk.status) && !tk.acknowledged);
   const status = !run.active && !unresolved
     ? `RESOLVED (${isoDate(run.stoppedAt ?? now())})`
     : 'IN PROGRESS';
-  const parts = SUMMARY_LABELS
-    .map(([s, label]) => [run.tickets.filter((tk) => tk.status === s).length, label])
-    .filter(([n]) => n > 0)
-    .map(([n, label]) => `${n} ${label}`);
+  const parts = SUMMARY_LABELS.flatMap(([s, label]) => {
+    const n = run.tickets.filter((tk) => tk.status === s).length;
+    return n > 0 ? [`${n} ${label}`] : [];
+  });
   const summary = `${run.tickets.length} tickets triaged`
     + (parts.length ? `: ${parts.join(', ')}.` : '.')
     + (run.active ? ' The run is still active.' : ` Stopped: ${clean(run.stopReason)}.`);
@@ -503,7 +540,7 @@ function debrief() {
 
 // --- dispatch --------------------------------------------------------------------------------
 
-function main(argv) {
+async function main(argv) {
   const { values: opts, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -514,31 +551,32 @@ function main(argv) {
       reason: { type: 'string' },
       'linear-estimates': { type: 'string' },
       deadline: { type: 'string' },
+      wait: { type: 'boolean' },
+      loop: { type: 'boolean' },
       'no-cost': { type: 'boolean' },
     },
   });
   const [cmd, arg] = positionals;
   switch (cmd) {
-    case 'preflight': return { out: preflight(opts) };
-    case 'set-reset': return { out: setReset(arg) };
+    case 'preflight': return preflight(opts);
+    case 'set-reset': return setReset(arg);
     case 'window': return windowCmd(opts);
-    case 'start': return { out: start(opts) };
-    case 'afford': return { out: afford(arg) };
-    case 'begin': return { out: begin(arg) };
-    case 'finish': return { out: finish(arg, opts) };
-    case 'skip': return { out: skip(arg, opts) };
-    case 'heartbeat': return { out: heartbeatCmd() };
-    case 'stop': return { out: stop(opts) };
-    case 'close-out': return { out: closeOut() };
-    case 'debrief': return { out: debrief() };
+    case 'start': return start(opts);
+    case 'afford': return afford(arg);
+    case 'begin': return begin(arg);
+    case 'finish': return finish(arg, opts);
+    case 'skip': return skip(arg, opts);
+    case 'heartbeat': return opts.loop ? heartbeatLoop() : heartbeatCmd();
+    case 'stop': return stop(opts);
+    case 'close-out': return closeOut();
+    case 'debrief': return debrief();
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }
 }
 
 try {
-  const { out, code = 0 } = main(process.argv.slice(2));
+  const out = await main(process.argv.slice(2));
   process.stdout.write(`${JSON.stringify(out)}\n`);
-  process.exitCode = code;
 } catch (err) {
   process.stdout.write(`${JSON.stringify({ error: err.message })}\n`);
   process.exitCode = 1;
