@@ -1,6 +1,6 @@
 ---
 name: pr-ship-check
-description: After a PR's reviews have landed and every fix-now finding is addressed, decide whether it ships — and whether part of it should split out and ship ahead, or be simplified or separated first. Checks the fix-now gate from the ~/pr-reviews record and the PR's review threads, then gives high-confidence recommendations only, each with the files or commits and the evidence. Use when the user says "/pr-ship-check", "is this ready to ship", "can any of this ship ahead", "should I split this PR", "ship check", or at the end of /live-code-review or /pr-triage once their fix-now items are done. Not a review: it finds no new bugs (that's /pr-review or /live-code-review) and changes no code. On a Ship verdict for your own PR it labels it "ready to ship" and moves a draft to ready for review.
+description: After a PR's reviews have landed and every fix-now finding is addressed, decide whether it ships — and whether part of it should split out and ship ahead, or be simplified or separated first. Checks the fix-now gate from the ~/pr-reviews record and the PR's review threads, then gives high-confidence recommendations only, each with the files or commits and the evidence. Use when the user says "/pr-ship-check", "is this ready to ship", "can any of this ship ahead", "should I split this PR", "ship check", or at the end of /live-code-review or /pr-triage once their fix-now items are done. Not a review: it finds no new bugs (that's /pr-review or /live-code-review) and changes no code besides adding a missing CHANGELOG entry. It recommends the next release version, and on a Ship verdict for your own PR it labels it "ready to ship" and moves a draft to ready for review.
 argument-hint: <pr-number>...
 # Runs in its own subagent so the session that asked stays free (asked 2026-11-19).
 # The subagent starts without the conversation, so callers pass PR numbers.
@@ -35,8 +35,9 @@ numbers. Run everything below once per PR.
 
 The session that started this sees only your final message, so end with one short block
 per PR: the verdict line, any spin-off or Step 4 item in one line each, the human-only
-steps, the record's path and the posted comment's URL, and what Step 7 did (label added
-or removed, moved to ready for review). If the gate failed, give its open items instead. If posting failed, say so and give the exact error.
+steps, the record's path and the posted comment's URL, and what Steps 6 and 8 did (changelog
+entry, release recommendation, label added or removed, moved to ready for review). If
+the gate failed, give its open items instead. If posting failed, say so and give the exact error.
 
 ## Step 1: The gate
 
@@ -107,7 +108,7 @@ Skip anything already in a review record, and anything that's a matter of taste.
 
 | Verdict | When |
 |---|---|
-| **Ship** | Gate passes, required CI is green (`SKIPPED` bot checks don't count), `mergeState` is `CLEAN`, and nothing from Steps 3–4 should land first. A draft can still be **Ship**: Step 7 marks it ready for review |
+| **Ship** | Gate passes, required CI is green (`SKIPPED` bot checks don't count), `mergeState` is `CLEAN`, and nothing from Steps 3–4 should land first. A draft can still be **Ship**: Step 8 marks it ready for review |
 | **Ship after `<step>`** | One named, small thing stands between it and merging: rebase or merge the base (`BEHIND`/`DIRTY`), wait for a running check, or land a spin-off first |
 | **Not ready** | CI fails, the gate fails, or a Step 4 item is big enough that it should change before merge |
 
@@ -117,11 +118,40 @@ read every line" boxes, or approve.
 Size alone doesn't block shipping. If the PR is well past ~400 changed lines and has a
 clean split, say so in Step 3; if it has no clean split, say that too.
 
-## Step 6: Save, then post
+## Step 6: Changelog and version
+
+Only when the repo has a `CHANGELOG.md` with an `## [Unreleased]` section (the Keep a
+Changelog layout). Otherwise skip this step and say so.
+
+1. **The entry.** If the PR's diff already adds a line under `[Unreleased]`, leave it.
+   Otherwise:
+   - **On the user's own PR**, add one. Match the section's style: the right
+     `### Added` / `Changed` / `Fixed` / `Security` / `Removed` heading, and a bold
+     `**<name>:**` lead followed by a sentence or two on what changed for someone using it.
+     Commit it on the PR branch as `📝 docs(changelog): <summary> (#<n>)` and push
+     normally, never with force. Work in the PR's own worktree if one is checked out
+     (`git worktree list`); otherwise use a throwaway worktree of the head branch, and
+     remove it afterwards.
+   - **On anyone else's PR**, don't commit. Put the drafted entry in the hand-back.
+
+   A changelog-only commit restarts CI. That doesn't change the verdict, but say that
+   CI is re-running.
+2. **The release.** Recommend the version for the release that would include this PR.
+   Base it on everything under `[Unreleased]` plus this PR, against the last tag
+   (`git describe --tags --abbrev=0`), using [semver](https://semver.org): a breaking
+   change is a major bump (a minor while the version is `0.x`), a new feature is a
+   minor, fixes only are a patch. Keep any pre-release suffix the current version uses
+   (`-alpha`). Say whether the unreleased work is worth releasing now or can wait for
+   more. This is a recommendation only: `/release` cuts the release.
+
+Both go in the PR comment (Step 7), under **Changelog** and **Release**.
+
+## Step 7: Save, then post
 
 Save to `~/pr-reviews/<project>/<prefix>_ship-check.md`, using the same
 `<JIRA>_PR-<N>` prefix as the review record. Sections: Verdict (one line, then the
-evidence), Gate, Spin-offs, Separation of concerns, Simplification, Human-only steps.
+evidence), Gate, Spin-offs, Separation of concerns, Simplification, Changelog, Release,
+Human-only steps.
 Each empty section says "None found".
 
 Posting follows the same rule as `/live-code-review`:
@@ -134,7 +164,7 @@ Posting follows the same rule as `/live-code-review`:
 
 End the post with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
-## Step 7: Mark a Ship verdict on the PR
+## Step 8: Mark a Ship verdict on the PR
 
 Only on a **Ship** verdict, and only on the user's own PR (`ownWork: true`). On anyone
 else's, hand back that it qualifies and leave the PR alone.
@@ -161,7 +191,8 @@ open and stop.
 
 ## Never
 
-- Change code, push, merge, approve, or resolve threads. This skill recommends, and its
-  only actions on the PR are Step 6's comment and Step 7's label and ready-for-review.
+- Change code (beyond Step 6's changelog entry), force-push, merge, approve, or resolve
+  threads. This skill recommends; its only actions on the PR are Step 6's changelog
+  commit, Step 7's comment, and Step 8's label and ready-for-review.
 - Recommend a spin-off you didn't prove with Step 3's check.
 - Re-raise review findings as new ones.
