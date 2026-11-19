@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { queueOrder } from '../lib/baseline.mjs';
@@ -27,7 +27,12 @@ function sandbox() {
     try { json = JSON.parse(r.stdout); } catch { /* asserted below */ }
     return { code: r.status, json, out: r.stdout + r.stderr };
   };
-  const file = (n, v) => writeJson(path.join(root, n), v);
+  // Fetched files are stamped at NOW: merge takes triagedAt from the fetch file's mtime.
+  const file = (n, v) => {
+    const f = writeJson(path.join(root, n), v);
+    utimesSync(f, NOW, NOW);
+    return f;
+  };
   const V = (id, extra = {}) => ({ id, title: `Ticket ${id}`, size: 'S', repo, status: 'queued', theme: 'bugs', ...extra });
   const baseline = () => JSON.parse(readFileSync(path.join(env.ABW_STATE_DIR, 'baseline.json'), 'utf8'));
   return { env, run, file, V, baseline, statePath: (n) => path.join(env.ABW_STATE_DIR, n) };
@@ -44,7 +49,9 @@ test('brief: no baseline → {baseline:false, reconcileDue:true}', () => {
 
 test('brief: reconciledAt 15 days before NOW with default 14 → reconcileDue true', () => {
   const box = sandbox();
-  box.run(['merge', '--fetched', box.file('f.json', [F('LAR-1')]), '--verdicts', box.file('v.json', [box.V('LAR-1')])],
+  const f = box.file('f.json', [F('LAR-1')]);
+  utimesSync(f, NOW - 15 * 86400, NOW - 15 * 86400);
+  box.run(['merge', '--fetched', f, '--verdicts', box.file('v.json', [box.V('LAR-1')])],
     { ABW_NOW: String(NOW - 15 * 86400) });
   assert.strictEqual(box.run(['brief']).json.reconcileDue, true);
   assert.strictEqual(box.run(['brief'], { ABW_NOW: String(NOW - 14 * 86400) }).json.reconcileDue, false);
@@ -96,4 +103,17 @@ test('finish: no baseline → finish still succeeds', () => {
   box.run(['begin', 'LAR-1']);
   const f = box.run(['finish', 'LAR-1', '--result', JSON.stringify({ outcome: 'handoff', reason: 'needs a call' })]);
   assert.strictEqual(f.code, 0, f.out);
+});
+
+test('I5: a corrupt baseline does not break finish; it warns and records the cost', () => {
+  const box = sandbox();
+  assert.strictEqual(box.run(['start', '--tickets', box.file('t.json', [box.V('LAR-1')])]).code, 0);
+  box.run(['begin', 'LAR-1']);
+  writeJson(box.statePath('baseline.json'), '{corrupt');
+  const f = box.run(['finish', 'LAR-1', '--result', JSON.stringify({ outcome: 'pr', pr: 'https://github.com/o/r/pull/1' })]);
+  assert.strictEqual(f.code, 0, f.out);
+  assert.match(f.json.warning, /baseline unreadable/);
+  const d = box.run(['debrief']);
+  assert.strictEqual(d.code, 0, d.out);
+  assert.match(d.json.warning, /baseline unreadable/);
 });

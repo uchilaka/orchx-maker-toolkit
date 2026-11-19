@@ -19,7 +19,7 @@ import { readUsage, capStatus } from '../lib/usage.mjs';
 import { clean } from '../lib/sanitize.mjs';
 import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
-  writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES,
+  writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES, RunStateError,
 } from '../lib/run-state.mjs';
 import {
   loadBaseline, saveBaseline, emptyBaseline, validateFetched, computeDelta, mergeVerdicts,
@@ -432,7 +432,7 @@ function finish(id, opts) {
   setTicket(run, id, patch);
   heartbeat(run, t);
   saveRun(stateDir(), run);
-  markWorked(id, { status: patch.status, pr: patch.pr, runId: run.id });
+  const warning = markWorked(id, { status: patch.status, pr: patch.pr, runId: run.id });
   // Only a finished ticket's cost is history: a capped, handed-off or failed one stopped partway,
   // and its smaller delta would pull the p75 down until `afford` approved tickets that later
   // breach the cap (live review COR2). The delta still lands on the ticket for the debrief.
@@ -440,7 +440,7 @@ function finish(id, opts) {
   if (recorded) {
     recordCost(stateDir(), { size: ticket.size, delta5h, tokens, shared: Boolean(ticket.shared) });
   }
-  return { id, status: patch.status, delta5h, recorded };
+  return { id, status: patch.status, delta5h, recorded, ...(warning && { warning }) };
 }
 
 // Takes a not-yet-running ticket out of the queue without pretending it was worked: e.g. a
@@ -607,9 +607,16 @@ function debrief() {
     run.debriefPath = file;
     saveRun(stateDir(), run);
   }
-  const baseline = loadBaseline(stateDir());
-  if (baseline) writeTriage(baseline, loadConfig());
-  return { path: file, status };
+  // The debrief is written; a bad baseline only costs the TRIAGE.md refresh.
+  let warning;
+  try {
+    const baseline = loadBaseline(stateDir());
+    if (baseline) writeTriage(baseline, loadConfig());
+  } catch (err) {
+    if (!(err instanceof RunStateError)) throw err;
+    warning = err.message;
+  }
+  return { path: file, status, ...(warning && { warning }) };
 }
 
 // --- triage baseline -------------------------------------------------------------------------
@@ -668,6 +675,18 @@ function writeTriage(baseline, config) {
   return triagePath();
 }
 
+// Why `start` would refuse `repo`, or null. checkRepo reports through fail(); this turns that
+// into a value so merge can demote the ticket instead of failing.
+function repoProblem(repo) {
+  try {
+    checkRepo('repo', repo, 'queued');
+    return null;
+  } catch (err) {
+    if (err instanceof CliError) return err.message.replace(/^repo: /, '');
+    throw err;
+  }
+}
+
 const countBy = (list) => list.reduce((acc, t) => ({ ...acc, [t.status]: (acc[t.status] ?? 0) + 1 }), {});
 
 // Folds this invocation's verdicts into the baseline and writes the queue `start` reads. The
@@ -685,9 +704,13 @@ function merge(opts) {
       if (prev) fail('a baseline already exists; seeding would overwrite it');
       next = seed(t, verdicts);
     } else {
+      // The fetch ran when fetched.json was written; a merge without one fetched nothing new.
+      const stampAt = opts.fetched
+        ? Math.min(t, Math.floor(statSync(opts.fetched).mtimeMs / 1000))
+        : (prev?.triagedAt ?? t);
       next = mergeVerdicts(prev ?? emptyBaseline(), fetchedArg(opts.fetched), verdicts, {
         rules: loadRules(repoRulesPath()), now: t, reconcile: !!opts.reconcile,
-        isToolkitRepo: isToolkitPath,
+        isToolkitRepo: isToolkitPath, repoProblem, stampAt,
       });
     }
   } catch (err) {
@@ -724,11 +747,20 @@ function seed(t, verdicts) {
 
 // A worked ticket stays out of the queue and out of reclassification (computeDelta): the ticket
 // agent edits it in Linear, and that is not a change of scope. No baseline, nothing to mark.
+// The run is already saved when this runs, so a bad baseline must not fail `finish` halfway:
+// it comes back as a warning.
 function markWorked(id, worked) {
-  const b = loadBaseline(stateDir());
-  if (!b?.tickets[id]) return;
+  let b;
+  try {
+    b = loadBaseline(stateDir());
+  } catch (err) {
+    if (err instanceof RunStateError) return err.message;
+    throw err;
+  }
+  if (!b?.tickets[id]) return null;
   b.tickets[id].worked = Object.fromEntries(Object.entries(worked).filter(([, v]) => v !== undefined));
   saveBaseline(stateDir(), b);
+  return null;
 }
 
 // Records Linear's updatedAt (and estimate) after this skill's own writes, such as estimate

@@ -116,7 +116,8 @@ files yourself.
      left the backlog show up too.
 
    Write the combined list with the Write tool to `$STATE/fetched.json`: a JSON array of those
-   fields, with `statusType` as Linear gives it.
+   fields, with `statusType` as Linear gives it. Write it as soon as the fetch ends and don't rewrite it later:
+   its modification time is when the next incremental fetch starts.
 2. **Delta.** Add `--reconcile` when step 1 listed the whole backlog and `--full` when asked:
 
    ```bash

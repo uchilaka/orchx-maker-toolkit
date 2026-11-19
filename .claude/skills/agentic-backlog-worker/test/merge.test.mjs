@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdirSync, readFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync, readFileSync, existsSync, utimesSync, rmSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -229,4 +231,52 @@ test('merge --seed: lastDelta is null, so TRIAGE.md says first triage rather tha
   const box = sandbox(root);
   box.run(['merge', '--seed', '--verdicts', box.file('v.json', [V('LAR-1', { repo })])]);
   assert.strictEqual(box.baseline().lastDelta, null);
+});
+
+// --- final review fixes --------------------------------------------------------------------
+
+test('I1: merge stamps triagedAt from the fetched file, and a bare merge leaves it alone', () => {
+  const { root, repo } = repos();
+  const box = sandbox(root);
+  const f = box.file('f.json', [F('LAR-1')]);
+  utimesSync(f, NOW - 3600, NOW - 3600);
+  box.run(['merge', '--fetched', f, '--verdicts', box.file('v.json', [V('LAR-1', { repo })])]);
+  assert.strictEqual(box.baseline().triagedAt, NOW - 3600);
+  assert.strictEqual(box.run(['merge']).code, 0);
+  assert.strictEqual(box.baseline().triagedAt, NOW - 3600);
+});
+
+test('I2: a handed-off ticket comes back once Linear changes it after its first post-run fetch', () => {
+  let b = mergeVerdicts(emptyBaseline(), [F('LAR-1')], [V('LAR-1')], opts());
+  b.tickets['LAR-1'].worked = { status: 'handoff', runId: 'run-1' };
+  // The agent's own edits land first: the next fetch settles them without reclassifying.
+  assert.deepStrictEqual(computeDelta(b, [F('LAR-1', { updatedAt: 'agent' })], {}).classify, []);
+  b = mergeVerdicts(b, [F('LAR-1', { updatedAt: 'agent' })], [], opts());
+  assert.strictEqual(b.tickets['LAR-1'].worked.settled, true);
+  // Uche's clarification afterwards is a real change.
+  assert.deepStrictEqual(computeDelta(b, [F('LAR-1', { updatedAt: 'uche' })], {}).classify, ['LAR-1']);
+});
+
+test('I3: a ticket with a draft PR is never reclassified, not even under --full or after settling', () => {
+  let b = mergeVerdicts(emptyBaseline(), [F('LAR-1')], [V('LAR-1')], opts());
+  b.tickets['LAR-1'].worked = { status: 'pr', pr: 'https://x/pull/1', runId: 'run-1' };
+  b = mergeVerdicts(b, [F('LAR-1', { updatedAt: 'agent' })], [], opts());
+  assert.deepStrictEqual(computeDelta(b, [F('LAR-1', { updatedAt: 'later' })], { full: true }).classify, []);
+  assert.deepStrictEqual(computeDelta(b, [F('LAR-1', { updatedAt: 'later' })], {}).classify, []);
+});
+
+test('I4: a carried queued ticket whose repo went stale is demoted to needs-repo, not a failed merge', () => {
+  const { root, repo } = repos();
+  const gone = path.join(root, 'gone');
+  mkdirSync(path.join(gone, '.git'), { recursive: true });
+  const box = sandbox(root);
+  box.run(['merge', '--fetched', box.file('f.json', [F('LAR-1'), F('LAR-2')]),
+    '--verdicts', box.file('v.json', [V('LAR-1', { repo: gone }), V('LAR-2', { repo })])]);
+  rmSync(gone, { recursive: true });
+  const r = box.run(['merge']);
+  assert.strictEqual(r.code, 0, r.out);
+  const t = box.baseline().tickets['LAR-1'];
+  assert.deepStrictEqual([t.status, t.repo], ['needs-repo', null]);
+  assert.match(t.reason, /repo unusable/);
+  assert.strictEqual(box.baseline().tickets['LAR-2'].status, 'queued');
 });

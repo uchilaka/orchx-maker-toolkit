@@ -78,11 +78,17 @@ export function validateFetched(list) {
   });
 }
 
+// A handed-off ticket comes back for a verdict when Linear changes it after the ticket agent's own
+// edits, which the first merge after its run absorbs (`settled`). Capped tickets return through
+// `start`'s carry-forward instead, and draft-PR tickets never do.
+const reopened = (prev, t) => prev.worked.status === 'handoff' && prev.worked.settled === true
+  && prev.updatedAt !== t.updatedAt;
+
 // Which fetched tickets need a verdict. `reconcile` says the fetch is a full Backlog/Todo
 // listing, so a baseline ticket missing from it has left; an incremental fetch only sees what
 // changed, so absence means nothing. `full` reclassifies every eligible ticket.
-// A ticket a run already worked (`worked`) is never reclassified here: the ticket agent edits
-// it in Linear, and those edits are not a change of scope.
+// A ticket a run already worked (`worked`) is reclassified only as `reopened` says: the ticket
+// agent edits it in Linear, and those edits are not a change of scope.
 export function computeDelta(baseline, fetched, { reconcile = false, full = false } = {}) {
   const known = baseline.tickets;
   const classify = [];
@@ -94,9 +100,14 @@ export function computeDelta(baseline, fetched, { reconcile = false, full = fals
     const prev = known[t.id];
     if (!ELIGIBLE.includes(t.statusType)) {
       if (prev) removed.push(t.id);
+    } else if (prev?.worked?.status === 'pr') {
+      // A draft PR exists: working it again would duplicate it, whatever changed.
+      unchanged += 1;
     } else if (full || !prev) {
       classify.push(t.id);
-    } else if (prev.worked || prev.updatedAt === t.updatedAt || seedMatch(prev, t)) {
+    } else if (prev.worked) {
+      if (reopened(prev, t)) classify.push(t.id); else unchanged += 1;
+    } else if (prev.updatedAt === t.updatedAt || seedMatch(prev, t)) {
       unchanged += 1;
     } else {
       classify.push(t.id);
@@ -144,8 +155,12 @@ function checkVerdict(v, i) {
 // caller saves it. Unchanged fetched tickets take Linear's current updatedAt and estimate, which
 // is how a seeded baseline gets its stamps. Repo rules then promote needs-repo tickets, and a
 // queued ticket in the toolkit's own checkout is skipped, since `start` would refuse it.
+// `stampAt` is when the fetch ran, so the next incremental fetch starts there and nothing
+// changed during a slow triage is missed (defaults to `now`). `repoProblem` says why a carried
+// queued ticket's repo is no longer usable; such a ticket drops to needs-repo instead of
+// failing the merge.
 export function mergeVerdicts(baseline, fetched, verdicts, {
-  rules, now, reconcile = false, isToolkitRepo,
+  rules, now, reconcile = false, isToolkitRepo, repoProblem = () => null, stampAt = now,
 }) {
   const old = baseline.tickets;
   const tickets = { ...old };
@@ -173,20 +188,27 @@ export function mergeVerdicts(baseline, fetched, verdicts, {
   }
   for (const id of removed) delete tickets[id];
   for (const [id, t] of Object.entries(tickets)) {
-    if (t.worked) continue;
+    if (t.worked) {
+      // The first merge after a run has seen the agent's edits in this fetch, if it made any.
+      if (!t.worked.settled) tickets[id] = { ...t, worked: { ...t.worked, settled: true } };
+      continue;
+    }
     if (t.status === 'needs-repo') {
       const repo = resolveRepo(rules, { id, project: t.project });
       if (repo) tickets[id] = { ...t, status: 'queued', repo };
     }
     if (tickets[id].status === 'queued' && isToolkitRepo(tickets[id].repo)) {
       tickets[id] = { ...tickets[id], status: 'skipped', repo: null, reason: TOOLKIT_REASON };
+    } else if (tickets[id].status === 'queued' && !judged.has(id)) {
+      const problem = repoProblem(tickets[id].repo);
+      if (problem) tickets[id] = { ...tickets[id], status: 'needs-repo', repo: null, reason: `repo unusable: ${problem}` };
     }
   }
   const first = baseline.triagedAt === null;
   return {
     ...baseline,
-    triagedAt: now,
-    reconciledAt: reconcile || first ? now : baseline.reconciledAt,
+    triagedAt: stampAt,
+    reconciledAt: reconcile || first ? stampAt : baseline.reconciledAt,
     tickets,
     lastDelta: {
       new: [...judged].filter((id) => !old[id]),
