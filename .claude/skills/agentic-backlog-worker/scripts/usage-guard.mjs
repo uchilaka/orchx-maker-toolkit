@@ -64,10 +64,8 @@ if (direct) {
 let lib = null;
 let libError = null;
 try {
-  lib = {
-    ...(await import('../lib/config.mjs')),
-    ...(await import('../lib/usage.mjs')),
-  };
+  const [config, usage] = await Promise.all([import('../lib/config.mjs'), import('../lib/usage.mjs')]);
+  lib = { ...config, ...usage };
 } catch (err) {
   libError = err;
 }
@@ -114,6 +112,18 @@ function resolveClosest(absPath) {
   }
 }
 
+// The state and runs dirs, each resolved by resolveClosest (null when unresolvable). Computed once
+// per process: a hook run makes one decision, and nothing it does moves these dirs. Each caller
+// applies its own null handling.
+let guardedBases = null;
+function guardBases() {
+  if (!guardedBases) {
+    const { stateDir, runsDir } = needLib();
+    guardedBases = [stateDir(), runsDir()].map((dir) => resolveClosest(path.resolve(dir)));
+  }
+  return guardedBases;
+}
+
 // Joined by string, not path.resolve, and resolved with realpath.native (the JS realpath collapses
 // `..` lexically): `link/../x` must be resolved by the OS through the real symlink, not collapsed
 // first.
@@ -143,11 +153,7 @@ function writeAllowed(toolInput, cwd, home) {
   } catch (err) {
     if (err.code !== 'ENOENT') return false;
   }
-  const { stateDir, runsDir } = needLib();
-  return [stateDir(), runsDir()].some((dir) => {
-    const base = resolveClosest(path.resolve(dir));
-    return base !== null && target.startsWith(base + path.sep);
-  });
+  return guardBases().some((base) => base !== null && target.startsWith(base + path.sep));
 }
 
 // --- Bash ------------------------------------------------------------------------------------
@@ -256,12 +262,9 @@ function addAllowed(args) {
 //   (d) that path resolves to `<X>/.git/worktrees/<name>`, with `<X>/.git` a real directory and
 //       `<X>` neither inside state/runs nor under any `*-worktrees` component.
 function insideGuardedDirs(real) {
-  const { stateDir, runsDir } = needLib();
-  return [stateDir(), runsDir()].some((dir) => {
-    const base = resolveClosest(path.resolve(dir));
-    // Unresolvable guard dirs: fail closed.
-    return base === null || real === base || real.startsWith(base + path.sep);
-  });
+  // Unresolvable guard dirs: fail closed.
+  return guardBases().some((base) =>
+    base === null || real === base || real.startsWith(base + path.sep));
 }
 
 function worktreeDirAllowed(dir) {

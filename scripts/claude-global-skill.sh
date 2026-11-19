@@ -109,55 +109,110 @@ remove_hooks() {
 # Physical path of an existing file, following symlinks; empty if it doesn't resolve.
 resolve_file() { node -e 'try{console.log(require("fs").realpathSync(process.argv[1]))}catch{}' "$1"; }
 
-# $1 name, $2 source skill dir. Links each agents/*.md into ~/.claude/agents/.
-install_agents() {
-  local name="$1" agents_src="$2/agents" f base link old backup
-  [ -d "$agents_src" ] || return 0
-  for f in "$agents_src"/*.md; do
-    [ -e "$f" ] || continue
-    base="$(basename "$f")"; link="$dest_agents/$base"
-    mkdir -p "$dest_agents"
-    if [ -L "$link" ]; then
-      old="$(readlink "$link")"
-      if [ "$old" = "$f" ]; then
-        echo "$name: agent $base already installed"
-      elif [ -e "$link" ] && [ "$(resolve_file "$link")" != "$(resolve_file "$f")" ]; then
-        # Resolves to a live file that isn't ours: somebody else's agent.
-        fail "$name: agent $link points at $old, not this checkout — left alone"
-      else
-        ln -sfn "$f" "$link"
-        echo "$name: agent $base installed -> $f (was -> $old)"
-      fi
-    elif [ -e "$link" ]; then
-      if ! cmp -s "$link" "$f"; then
-        fail "$name: agent $link is a real file and differs from $f — reconcile by hand (diff \"$link\" \"$f\")"
-        continue
-      fi
-      mkdir -p "$backups"
-      backup="$backups/agent-${base%.md}-$(date +%Y%m%dT%H%M%S).md"
-      mv "$link" "$backup"
-      ln -s "$f" "$link"
-      echo "$name: agent $base installed -> $f (identical copy moved to $backup)"
+# link_item <src> <dest> <label> <skill|agent>: symlink dest -> src, and set item_ok to
+# yes, or to no when it refuses (the reason is already reported). It sets a variable rather
+# than returning 1 so it is never called in a tested context, where bash suspends set -e.
+# label prefixes every message ("alpha:" for a skill, "alpha: agent x.md" for an agent).
+# A skill directory and an agent file share these rules except where noted; the
+# differences predate this helper and are kept on purpose:
+#   - an existing link is compared by its literal target, never the resolved one (a link
+#     that reaches this checkout through an alias dangles once the alias is removed, so it
+#     is re-pointed). A skill link is always re-pointed; an agent link that resolves to
+#     some other live file is somebody else's agent and is refused.
+#   - a real dest with identical content moves to the backups dir first: <name>-<ts> for
+#     a skill, agent-<name>-<ts>.md for an agent. Different content is refused.
+link_item() {
+  local src="$1" dest="$2" label="$3" kind="$4" old backup ts
+  item_ok=no
+  mkdir -p "$(dirname "$dest")"
+  if [ -L "$dest" ]; then
+    old="$(readlink "$dest")"
+    if [ "$old" = "$src" ]; then
+      if [ "$kind" = skill ]; then echo "$label already installed -> $old"; else echo "$label already installed"; fi
+    elif [ "$kind" = agent ] && [ -e "$dest" ] && [ "$(resolve_file "$dest")" != "$(resolve_file "$src")" ]; then
+      fail "$label $dest points at $old, not this checkout — left alone"; return 0
     else
-      ln -s "$f" "$link"
-      echo "$name: agent $base installed -> $f"
+      ln -sfn "$src" "$dest"
+      echo "$label installed -> $src (was -> $old)"
     fi
+  elif [ -e "$dest" ]; then
+    if [ "$kind" = skill ]; then
+      if ! diff -rq "$dest" "$src" >/dev/null 2>&1; then
+        fail "$label $dest is a real directory and differs from $src — reconcile by hand (diff -r \"$dest\" \"$src\")"
+        return 0
+      fi
+    elif ! cmp -s "$dest" "$src"; then
+      fail "$label $dest is a real file and differs from $src — reconcile by hand (diff \"$dest\" \"$src\")"
+      return 0
+    fi
+    mkdir -p "$backups"
+    ts="$(date +%Y%m%dT%H%M%S)"
+    if [ "$kind" = skill ]; then backup="$backups/$(basename "$dest")-$ts"
+    else old="$(basename "$dest")"; backup="$backups/agent-${old%.md}-$ts.md"; fi
+    mv "$dest" "$backup"
+    ln -s "$src" "$dest"
+    echo "$label installed -> $src (identical copy moved to $backup)"
+  else
+    ln -s "$src" "$dest"
+    echo "$label installed -> $src"
+  fi
+  item_ok=yes
+}
+
+# same_target <a> <b> <skill|agent>: both resolve, to the same physical path.
+same_target() {
+  local here
+  if [ "$3" = skill ]; then
+    here="$(resolve "$1")"; [ -n "$here" ] && [ "$here" = "$(resolve "$2")" ]
+  else
+    here="$(resolve_file "$1")"; [ -n "$here" ] && [ "$here" = "$(resolve_file "$2")" ]
+  fi
+}
+
+# unlink_item <src> <dest> <label> <skill|agent>: removes dest only when it is a symlink
+# into this checkout (literal target, or the same resolved path). Sets item_ok to yes when
+# dest is gone afterwards (removed, or a skill that was not installed), else no. A real
+# skill directory is refused; an agent that is not a symlink is skipped silently.
+unlink_item() {
+  local src="$1" dest="$2" label="$3" kind="$4" target
+  item_ok=no
+  if [ -L "$dest" ]; then
+    target="$(readlink "$dest")"
+    if [ "$target" = "$src" ] || same_target "$dest" "$src" "$kind"; then
+      rm "$dest"
+      echo "$label uninstalled"
+      item_ok=yes
+    else
+      fail "$label $dest points at $target, not this checkout — left alone"
+    fi
+  elif [ "$kind" = agent ]; then
+    :
+  elif [ -e "$dest" ]; then
+    fail "$label $dest is a real directory, not an install from this repo — left alone"
+  else
+    echo "$label not installed"
+    item_ok=yes
+  fi
+}
+
+# $1 name, $2 source skill dir. Links (or unlinks) each agents/*.md in ~/.claude/agents/.
+install_agents() {
+  local name="$1" f base
+  [ -d "$2/agents" ] || return 0
+  for f in "$2/agents"/*.md; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    link_item "$f" "$dest_agents/$base" "$name: agent $base" agent
   done
 }
 
 remove_agents() {
-  local name="$1" agents_src="$2/agents" f base link
-  [ -d "$agents_src" ] || return 0
-  for f in "$agents_src"/*.md; do
+  local name="$1" f base
+  [ -d "$2/agents" ] || return 0
+  for f in "$2/agents"/*.md; do
     [ -e "$f" ] || continue
-    base="$(basename "$f")"; link="$dest_agents/$base"
-    [ -L "$link" ] || continue
-    if [ "$(readlink "$link")" = "$f" ] || { [ -n "$(resolve_file "$link")" ] && [ "$(resolve_file "$link")" = "$(resolve_file "$f")" ]; }; then
-      rm "$link"
-      echo "$name: agent $base uninstalled"
-    else
-      fail "$name: agent $link points at $(readlink "$link"), not this checkout — left alone"
-    fi
+    base="$(basename "$f")"
+    unlink_item "$f" "$dest_agents/$base" "$name: agent $base" agent
   done
 }
 
@@ -169,55 +224,17 @@ for name in "${names[@]}"; do
   if [ "$action" = install ]; then
     if [ -L "$src" ]; then fail "$name: $src is a mount:claude symlink, not a repo-local skill"; continue; fi
     if [ ! -f "$src/SKILL.md" ]; then fail "$name: no skill at $src (merged to main yet?)"; continue; fi
-    mkdir -p "$dest_skills"
-
-    if [ -L "$dest" ]; then
-      # Compare the literal target, not the resolved one: a link that reaches this
-      # checkout through an alias (say, a renamed repo's old path kept as a symlink)
-      # resolves equal today but dangles once the alias is removed, so re-point it.
-      # Uninstall still compares resolved paths, so it removes such links.
-      if [ "$(readlink "$dest")" = "$src" ]; then
-        echo "$name: already installed -> $(readlink "$dest")"
-      else
-        old="$(readlink "$dest")"
-        ln -sfn "$src" "$dest"
-        echo "$name: installed -> $src (was -> $old)"
-      fi
-    elif [ -e "$dest" ]; then
-      if ! diff -rq "$dest" "$src" >/dev/null 2>&1; then
-        fail "$name: $dest is a real directory and differs from $src — reconcile by hand (diff -r \"$dest\" \"$src\")"
-        continue
-      fi
-      mkdir -p "$backups"
-      backup="$backups/$name-$(date +%Y%m%dT%H%M%S)"
-      mv "$dest" "$backup"
-      ln -s "$src" "$dest"
-      echo "$name: installed -> $src (identical copy moved to $backup)"
-    else
-      ln -s "$src" "$dest"
-      echo "$name: installed -> $src"
-    fi
+    link_item "$src" "$dest" "$name:" skill
+    [ "$item_ok" = yes ] || continue
     install_agents "$name" "$src"
     install_hooks "$name" "$src" "$dest"
 
   else
     remove_agents "$name" "$src"
-    if [ -L "$dest" ]; then
-      target="$(readlink "$dest")"
-      if [ "$target" = "$src" ] || { [ -n "$(resolve "$dest")" ] && [ "$(resolve "$dest")" = "$(resolve "$src")" ]; }; then
-        rm "$dest"
-        echo "$name: uninstalled"
-        remove_hooks "$name" "$src" "$dest"
-      else
-        fail "$name: $dest points at $target, not this checkout — left alone"
-      fi
-    elif [ -e "$dest" ]; then
-      fail "$name: $dest is a real directory, not an install from this repo — left alone"
-    else
-      echo "$name: not installed"
-      # A hook left behind would run a script that isn't there.
-      remove_hooks "$name" "$src" "$dest"
-    fi
+    # Hooks go with the link, and also when nothing is installed: a hook left behind would
+    # run a script that isn't there.
+    unlink_item "$src" "$dest" "$name:" skill
+    if [ "$item_ok" = yes ]; then remove_hooks "$name" "$src" "$dest"; fi
   fi
 done
 
