@@ -14,6 +14,11 @@
 // `{{SKILL_DIR}}` in a command becomes the installed skill dir
 // (~/.claude/skills/<name>, absolute), so the hook survives the checkout moving.
 //
+// The optional statusLine is a single setting, not a list. `add` sets it only when
+// settings.json has none or the one it has is ours: the same command, or a plain path
+// that resolves to the same file (the user's own script later symlinked to the skill's).
+// A foreign statusLine is kept and reported. `remove` deletes it only when it's ours.
+//
 // A hook is identified by its event, matcher and exact command. `add` appends a
 // group for each one that's missing and never edits the user's own groups;
 // `remove` takes out only those commands, then any group or event they leave
@@ -55,7 +60,40 @@ function loadFragment(file, skillDir) {
       }
     }
   }
-  return { description: frag.description || '', mkdir: frag.mkdir || [], wanted };
+  let statusLine = null;
+  if (frag.statusLine !== undefined) {
+    if (typeof frag.statusLine?.command !== 'string') throw new InputError(`${file}: statusLine has no command`);
+    statusLine = { ...frag.statusLine, command: frag.statusLine.command.split('{{SKILL_DIR}}').join(skillDir) };
+  }
+  return { description: frag.description || '', mkdir: frag.mkdir || [], wanted, statusLine };
+}
+
+// Only a command that is nothing but a path can be compared by file; anything with
+// arguments or shell syntax is compared as text. A path may be wrapped whole in double
+// or single quotes (fragments quote "{{SKILL_DIR}}/x" so a skill dir with spaces
+// survives the shell), as long as nothing inside would still expand.
+const isPlainPath = (c) => /^[\w./@+-]+$/.test(c) || /^~\/[\w./@+-]+$/.test(c);
+const pathOf = (c) => {
+  const quoted = c.match(/^"([^"$`\\]+)"$/) || c.match(/^'([^']+)'$/);
+  if (quoted) return quoted[1];
+  return isPlainPath(c) ? c : null;
+};
+const realOf = (p) => {
+  try {
+    return fs.realpathSync(expandHome(p));
+  } catch {
+    return null;
+  }
+};
+function statusLineIsOurs(current, ours) {
+  const a = current?.command;
+  if (typeof a !== 'string') return false;
+  if (a === ours.command) return true;
+  const pa = pathOf(a);
+  const po = pathOf(ours.command);
+  if (pa === null || po === null) return false;
+  const ra = realOf(pa);
+  return ra !== null && ra === realOf(po);
 }
 
 function loadSettings() {
@@ -88,22 +126,34 @@ function save(settings) {
 function add(frag) {
   const settings = loadSettings();
   const missing = frag.wanted.filter((w) => !present(settings, w));
+  const sl = frag.statusLine;
+  // Absent, or ours under another spelling (re-pointed to the exact command): set it.
+  // Anyone else's stays.
+  const hasStatusLine = settings.statusLine !== undefined;
+  const ours = hasStatusLine && sl && statusLineIsOurs(settings.statusLine, sl);
+  const setStatusLine = sl && (!hasStatusLine || (ours && settings.statusLine.command !== sl.command));
+  if (sl && hasStatusLine && !ours) console.log(`  statusLine: kept yours (${settings.statusLine?.command})`);
   for (const d of frag.mkdir.map(expandHome)) {
     if (!fs.existsSync(d)) {
       fs.mkdirSync(d, { recursive: true });
       console.log(`  created ${d}`);
     }
   }
-  if (!missing.length) {
+  if (!missing.length && !setStatusLine) {
     console.log('  hooks already in settings.json');
     return;
   }
-  settings.hooks = settings.hooks || {};
+  if (missing.length) settings.hooks = settings.hooks || {};
   for (const w of missing) {
     const group = { hooks: [w.hook] };
     if (w.matcher !== undefined) group.matcher = w.matcher;
     (settings.hooks[w.event] = settings.hooks[w.event] || []).push(group);
     console.log(`  added ${w.event} hook: ${w.hook.command}`);
+  }
+  if (setStatusLine) {
+    // Merge, so a user's own extra fields (padding...) survive a re-point.
+    settings.statusLine = { ...settings.statusLine, ...sl };
+    console.log(`  set statusLine: ${sl.command}`);
   }
   save(settings);
 }
@@ -125,6 +175,11 @@ function remove(frag) {
     settings.hooks[w.event] = groups.filter((g) => !g.hooks || g.hooks.length);
     if (!settings.hooks[w.event].length) delete settings.hooks[w.event];
   }
+  if (frag.statusLine && settings.statusLine !== undefined && statusLineIsOurs(settings.statusLine, frag.statusLine)) {
+    console.log(`  removed statusLine: ${settings.statusLine.command}`);
+    delete settings.statusLine;
+    removed++;
+  }
   if (!removed) return;
   if (settings.hooks && !Object.keys(settings.hooks).length) delete settings.hooks;
   save(settings);
@@ -141,7 +196,12 @@ function main(argv) {
     console.log(frag.description);
   } else if (action === 'has') {
     const settings = loadSettings();
-    return frag.wanted.every((w) => present(settings, w)) ? 0 : 1;
+    // A foreign statusLine is the user's to keep, so it doesn't make the skill "not installed".
+    // Ours under another spelling is not done: `add` must re-point it to the exact command.
+    const cur = settings.statusLine;
+    const slDone = !frag.statusLine || (cur !== undefined
+      && (cur?.command === frag.statusLine.command || !statusLineIsOurs(cur, frag.statusLine)));
+    return slDone && frag.wanted.every((w) => present(settings, w)) ? 0 : 1;
   } else if (action === 'add') {
     add(frag);
   } else {

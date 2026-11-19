@@ -286,3 +286,203 @@ test('hooks: browse\'s install/hooks.json passes browse\'s autostart hook test',
   assert.strictEqual(t.status, 0, t.stdout);
   assert.match(t.stdout, /ℹ pass 1/);
 });
+
+// --- Agents (agents/*.md -> ~/.claude/agents) and the optional statusLine. `delta`
+// ships one agent and a statusLine fragment; each test builds it so the fixtures above
+// stay as they are.
+
+const agentsDir = () => path.join(home, '.claude', 'agents');
+const deltaSrc = () => srcOf('delta');
+const deltaStatusLine = () => ({ type: 'command', command: `${path.join(skills, 'delta')}/statusline.sh`, refreshInterval: 60 });
+
+function makeDelta({ statusLine = true, quoted = false } = {}) {
+  const dir = quoted ? '"{{SKILL_DIR}}' : '{{SKILL_DIR}}';
+  const end = quoted ? '"' : '';
+  fs.mkdirSync(path.join(deltaSrc(), 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(deltaSrc(), 'SKILL.md'), '---\nname: delta\n---\n');
+  fs.writeFileSync(path.join(deltaSrc(), 'agents', 'helper.md'), '---\nname: helper\n---\n');
+  if (!statusLine) return;
+  fs.mkdirSync(path.join(deltaSrc(), 'install'));
+  fs.writeFileSync(path.join(deltaSrc(), 'install', 'hooks.json'), JSON.stringify({
+    description: 'Show delta in the status line',
+    hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: `${dir}/start.sh${end}` }] }] },
+    statusLine: { type: 'command', command: `${dir}/statusline.sh${end}`, refreshInterval: 60 },
+  }));
+}
+
+test('agents: install links agents/*.md into ~/.claude/agents', () => {
+  makeDelta({ statusLine: false });
+  const r = run('install', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(fs.readlinkSync(path.join(agentsDir(), 'helper.md')), path.join(deltaSrc(), 'agents', 'helper.md'));
+  // A skill with no agents/ never creates the directory.
+  fs.rmSync(agentsDir(), { recursive: true });
+  assert.strictEqual(run('install', 'beta').status, 0);
+  assert.ok(!fs.existsSync(agentsDir()));
+  // Re-running is a no-op, and a link left at an old path is re-pointed.
+  assert.match(run('install', 'delta').stdout, /agent helper.md installed/);
+  assert.match(run('install', 'delta').stdout, /agent helper.md already installed/);
+  fs.unlinkSync(path.join(agentsDir(), 'helper.md'));
+  fs.symlinkSync('/stale/helper.md', path.join(agentsDir(), 'helper.md'));
+  assert.match(run('install', 'delta').stdout, /was -> \/stale\/helper.md/);
+});
+
+test('agents: install backs up an identical real file, then links', () => {
+  makeDelta({ statusLine: false });
+  fs.mkdirSync(agentsDir(), { recursive: true });
+  fs.copyFileSync(path.join(deltaSrc(), 'agents', 'helper.md'), path.join(agentsDir(), 'helper.md'));
+  const r = run('install', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(fs.lstatSync(path.join(agentsDir(), 'helper.md')).isSymbolicLink());
+  const backups = fs.readdirSync(path.join(home, '.claude', 'skill-backups'));
+  assert.strictEqual(backups.length, 1);
+  assert.match(backups[0], /^agent-helper-\d{8}T\d{6}\.md$/);
+});
+
+test('agents: refuses a different real file', () => {
+  makeDelta({ statusLine: false });
+  fs.mkdirSync(agentsDir(), { recursive: true });
+  fs.writeFileSync(path.join(agentsDir(), 'helper.md'), 'mine\n');
+  const r = run('install', 'delta');
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /delta: agent .*helper.md is a real file and differs/);
+  assert.strictEqual(fs.readFileSync(path.join(agentsDir(), 'helper.md'), 'utf8'), 'mine\n');
+  assert.strictEqual(linkOf('delta'), deltaSrc());
+});
+
+test('agents: uninstall removes only links into this checkout', () => {
+  makeDelta({ statusLine: false });
+  run('install', 'delta');
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.ok(!fs.existsSync(path.join(agentsDir(), 'helper.md')));
+
+  fs.symlinkSync('/somewhere/else/helper.md', path.join(agentsDir(), 'helper.md'));
+  const r = run('uninstall', 'delta');
+  assert.strictEqual(r.status, 1);
+  assert.strictEqual(fs.readlinkSync(path.join(agentsDir(), 'helper.md')), '/somewhere/else/helper.md');
+
+  fs.unlinkSync(path.join(agentsDir(), 'helper.md'));
+  fs.writeFileSync(path.join(agentsDir(), 'helper.md'), 'real\n');
+  run('uninstall', 'delta');
+  assert.strictEqual(fs.readFileSync(path.join(agentsDir(), 'helper.md'), 'utf8'), 'real\n');
+});
+
+test('statusLine: sets when absent', () => {
+  makeDelta();
+  const r = run('install', '--with-hooks', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(readSettings().statusLine, deltaStatusLine());
+  assert.match(run('install', '--with-hooks', 'delta').stdout, /optional hooks already in/);
+});
+
+test('statusLine: not set without --with-hooks', () => {
+  makeDelta();
+  assert.match(run('install', '--no-hooks', 'delta').stdout, /optional hooks skipped/);
+  assert.ok(!fs.existsSync(settingsFile()));
+});
+
+test('statusLine: keeps a foreign one and says so', () => {
+  makeDelta();
+  const mine = { type: 'command', command: 'echo mine' };
+  writeSettings({ statusLine: mine });
+  const r = run('install', '--with-hooks', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /statusLine: kept yours \(echo mine\)/);
+  assert.deepStrictEqual(readSettings().statusLine, mine);
+  assert.deepStrictEqual(commands(readSettings()), [`${path.join(skills, 'delta')}/start.sh`]);
+});
+
+test('statusLine: a plain path that resolves to our script counts as ours and is re-pointed', () => {
+  makeDelta();
+  fs.mkdirSync(path.join(deltaSrc(), 'scripts'));
+  fs.writeFileSync(path.join(deltaSrc(), 'scripts', 'real.sh'), '#!/bin/sh\n');
+  const old = path.join(home, 'old-statusline.sh');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), old);
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), path.join(deltaSrc(), 'statusline.sh'));
+  run('install', 'delta');   // links the skill so ~/.claude/skills/delta/statusline.sh exists
+  writeSettings({ statusLine: { type: 'command', command: old } });
+  const r = run('install', '--with-hooks', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /kept yours/);
+  assert.strictEqual(readSettings().statusLine.command, deltaStatusLine().command);
+});
+
+test('statusLine: remove takes out ours and leaves a foreign one', () => {
+  makeDelta();
+  run('install', '--with-hooks', 'delta');
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.strictEqual(readSettings().statusLine, undefined);
+
+  run('install', '--with-hooks', 'delta');
+  const mine = { type: 'command', command: 'echo mine' };
+  writeSettings({ ...readSettings(), statusLine: mine });
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.deepStrictEqual(readSettings().statusLine, mine);
+});
+
+test('statusLine: remove leaves a foreign one', () => {
+  makeDelta();
+  const mine = { type: 'command', command: 'echo mine' };
+  writeSettings({ statusLine: mine, model: 'opus' });
+  const r = run('uninstall', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(readSettings(), { statusLine: mine, model: 'opus' });
+});
+
+// Hooks already installed, statusLine ours only under another spelling: install must
+// still re-point it (the exact command survives the skill link going away), keep the
+// user's extra fields, and a later uninstall must remove it.
+test('statusLine: re-points an aliased one when hooks are already present, keeps padding, uninstall removes it', () => {
+  makeDelta();
+  fs.mkdirSync(path.join(deltaSrc(), 'scripts'));
+  fs.writeFileSync(path.join(deltaSrc(), 'scripts', 'real.sh'), '#!/bin/sh\n');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), path.join(deltaSrc(), 'statusline.sh'));
+  const old = path.join(home, 'old-statusline.sh');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), old);
+  assert.strictEqual(run('install', '--with-hooks', 'delta').status, 0);
+  writeSettings({ ...readSettings(), statusLine: { type: 'command', command: old, padding: 2 } });
+
+  const r = run('install', '--with-hooks', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(readSettings().statusLine, { ...deltaStatusLine(), padding: 2 });
+
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.strictEqual(readSettings().statusLine, undefined);
+});
+
+// A quoted "{{SKILL_DIR}}/x" (agentic-backlog-worker, so a path with spaces survives the shell)
+// must still be recognised as ours: exact match for hooks, and by file for an aliased statusLine.
+test('statusLine: a quoted fragment installs, is reported present, and uninstalls', () => {
+  makeDelta({ quoted: true });
+  const quotedLine = { ...deltaStatusLine(), command: `"${deltaStatusLine().command}"` };
+  assert.strictEqual(run('install', '--with-hooks', 'delta').status, 0);
+  assert.deepStrictEqual(readSettings().statusLine, quotedLine);
+  assert.deepStrictEqual(commands(readSettings()), [`"${path.join(skills, 'delta')}/start.sh"`]);
+  assert.match(run('install', '--with-hooks', 'delta').stdout, /optional hooks already in/);
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.strictEqual(readSettings().statusLine, undefined);
+  assert.deepStrictEqual(commands(readSettings()), []);
+});
+
+test('statusLine: an aliased path is re-pointed to a quoted fragment, and a quoted alias counts too', () => {
+  makeDelta({ quoted: true });
+  fs.mkdirSync(path.join(deltaSrc(), 'scripts'));
+  fs.writeFileSync(path.join(deltaSrc(), 'scripts', 'real.sh'), '#!/bin/sh\n');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), path.join(deltaSrc(), 'statusline.sh'));
+  const old = path.join(home, 'old statusline.sh');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), old);
+  run('install', 'delta');
+  const quotedCmd = `"${deltaStatusLine().command}"`;
+  for (const current of [`"${old}"`, `'${old}'`]) {
+    writeSettings({ statusLine: { type: 'command', command: current } });
+    const r = run('install', '--with-hooks', 'delta');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stdout, /kept yours/, current);
+    assert.strictEqual(readSettings().statusLine.command, quotedCmd, current);
+  }
+  // Quoting is not a way in for shell syntax: "$x" or a trailing command stays foreign.
+  for (const foreign of [`"${old}" --x`, `"$HOME/old statusline.sh"`]) {
+    writeSettings({ statusLine: { type: 'command', command: foreign } });
+    assert.match(run('install', '--with-hooks', 'delta').stdout, /kept yours/, foreign);
+  }
+});

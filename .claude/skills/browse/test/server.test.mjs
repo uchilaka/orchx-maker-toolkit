@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { get } from "node:http";
 import { fixtureTree, startServer, rawGet } from "./helpers.mjs";
+import { codeVersion } from "../registry.mjs";
 
 describe("server, directory mode", { timeout: 30_000 }, () => {
   let tree, srv;
@@ -17,10 +18,10 @@ describe("server, directory mode", { timeout: 30_000 }, () => {
     assert.match(srv.url, /^http:\/\/plans\.localhost:\d+$/);
   });
 
-  test("/__health returns the served path and the server's pid", async () => {
+  test("/__health returns the served path, the server's pid and its code fingerprint", async () => {
     const r = await rawGet(srv.base, "/__health");
     assert.equal(r.status, 200);
-    assert.deepEqual(JSON.parse(r.body), { path: tree.plans, pid: srv.child.pid });
+    assert.deepEqual(JSON.parse(r.body), { path: tree.plans, pid: srv.child.pid, code: codeVersion() });
   });
 
   // DNS rebinding: a page on evil.example re-resolves its own name to 127.0.0.1

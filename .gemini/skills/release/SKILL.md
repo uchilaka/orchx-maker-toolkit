@@ -68,15 +68,28 @@ You are a release coordinator responsible for ensuring a safe and consistent rel
       warning fails this step too, so fix it rather than skipping it. The one
       tolerated exception is listed, with its reason, in `scripts/validate_plugin.cjs`.
 
-10. **Commit & Tag:**
-    - Stage all changes (`git add .`).
-    - Create a semantic commit: `chore: release vX.Y.Z`.
-    - Create a git tag: `vX.Y.Z`.
-    - Push the branch and the new tag to the remote repository.
+10. **Release PR:**
+    - `main` only accepts changes through a pull request, so never push the
+      release commit to it directly.
+    - Create a branch `release/vX.Y.Z` from an up-to-date `main`.
+    - Stage the release files (metadata, `CHANGELOG.md`, `dist/`) and create a
+      semantic commit: `chore: release vX.Y.Z`.
+    - Push the branch and open a PR, following the repo's PR template. Call out
+      the regenerated `dist/*.skill` artifacts so reviewers can skip them.
+
+11. **Merge & Tag:**
+    - Once CI passes and the user confirms, merge the PR **with a merge commit,
+      never a squash**, so the release commit keeps its SHA in `main`'s history.
+    - Update local `main`, then create the tag on the release commit, not the
+      merge commit: `git tag -a vX.Y.Z -m "vX.Y.Z" <release-commit>`.
+    - Check `git merge-base --is-ancestor vX.Y.Z main`, then push the tag.
+    - Push the tag only after the merge. A tag pushed earlier points at a commit
+      that isn't on `main` if the PR is squashed, changed or never merged.
 
 ## Safety Guidelines
 
 - **Atomic Changes:** Ensure all metadata, changelog, and build artifacts are updated in the same commit.
 - **Verification First:** Never proceed to the commit step if `mise run build:gemini` or `mise run build:claude` fails.
 - **No Bypassing the Gate:** Never skip or work around a blocking `publish-prep` finding. The fix is an edit, or an allow comment whose reason the user approved through `/publish-prep`.
-- **Explicit Confirmation:** Summarize the proposed changes (version, changelog entry) and ask for one final confirmation before pushing to the remote.
+- **Explicit Confirmation:** Summarize the proposed changes (version, changelog entry) and ask for one final confirmation before opening the release PR.
+- **Tag Last:** The tag is the final step, after the release PR has merged. Never push it alongside the branch.

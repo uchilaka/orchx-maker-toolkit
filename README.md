@@ -135,7 +135,7 @@ This symlinks `.gemini/skills/*` into `.claude/skills/`, validates each one's fr
 then unmounts — `.claude/skills/` is left exactly as it started. Run `mise run mount:claude`
 / `mise run unmount:claude` directly if you want to inspect a mounted skill by hand.
 
-The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`, `check-mermaid-artifact`, `pr-triage`)
+The repo-local Claude skills in `.claude/skills/` (`patch-my-hosts`, `llm-wikify`, `browser-test-assist`, `browse`, `check-mermaid-artifact`, `pr-triage`, `agentic-backlog-worker`)
 can be installed for use from any project, as symlinks back to this checkout:
 
 ```sh
@@ -149,6 +149,12 @@ A skill can ship optional hooks in `install/hooks.json` (today: `browse`'s sessi
 preview server). Install asks before adding them to `~/.claude/settings.json`;
 `--with-hooks` or `--no-hooks` answers up front, and without a terminal to ask they're
 skipped. Uninstall removes them.
+
+A skill's `agents/*.md` files are always linked into `~/.claude/agents/` on install and unlinked
+on uninstall. A `statusLine` entry in `install/hooks.json` is applied behind the same prompt as
+hooks (today: `agentic-backlog-worker`, which is globally mounted but not in `marketplace.json`).
+It is set only when you have no status line of your own; otherwise yours is kept and the worker
+won't start until you point `statusLine` at the skill's `scripts/statusline.sh`.
 
 See `CLAUDE.md` for what install does to an existing copy, and why it links to the main
 checkout rather than a worktree.

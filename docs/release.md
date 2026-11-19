@@ -13,7 +13,8 @@ The `/release` skill automates the complex and error-prone process of cutting a 
     *   Updates the version in `GEMINI.md`, `.claude-plugin/plugin.json` and `CHANGELOG.md`.
     *   Drafts the `CHANGELOG.md`.
     *   Regenerates all `.skill` files in `dist/`.
-7.  **Finalization:** Creates a semantic commit, generates a git tag, and pushes everything to the remote.
+7.  **Release PR:** Commits the release on a `release/vX.Y.Z` branch and opens a pull request, since `main` only accepts changes through one.
+8.  **Merge & Tag:** Once CI passes, merges the PR with a merge commit (never a squash), then tags the release commit and pushes the tag. The tag goes last, so it always points at a commit on `main`.
 
 ## Usage Example
 
