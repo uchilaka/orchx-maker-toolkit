@@ -26,6 +26,7 @@ import {
   queueOrder, estimatesNeeded,
 } from '../lib/baseline.mjs';
 import { appendRule, keyProblem, loadRules } from '../lib/repo-rules.mjs';
+import { renderTriage, triagePath } from '../lib/triage-report.mjs';
 
 const estimatesBlocked = (teams) =>
   `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
@@ -605,6 +606,8 @@ function debrief() {
     run.debriefPath = file;
     saveRun(stateDir(), run);
   }
+  const baseline = loadBaseline(stateDir());
+  if (baseline) writeTriage(baseline, loadConfig());
   return { path: file, status };
 }
 
@@ -654,6 +657,16 @@ const fetchedArg = (file) => {
   }
 };
 
+// Rewrites TRIAGE.md from the baseline, with run outcomes when a run exists. An unreadable
+// run.json is left for the status hook to report; the triage view still renders.
+function writeTriage(baseline, config) {
+  let run = null;
+  try { run = loadRun(stateDir()); } catch { /* reported by the status hook */ }
+  mkdirSync(runsDir(), { recursive: true });
+  writeFileSync(triagePath(), renderTriage({ baseline, run, themeOrder: config.theme_order }));
+  return triagePath();
+}
+
 const countBy = (list) => list.reduce((acc, t) => ({ ...acc, [t.status]: (acc[t.status] ?? 0) + 1 }), {});
 
 // Folds this invocation's verdicts into the baseline and writes the queue `start` reads. The
@@ -683,13 +696,14 @@ function merge(opts) {
   const queue = validateTickets(queueOrder(next, config.theme_order));
   saveBaseline(stateDir(), next);
   writeJsonAtomic(stateDir(), TRIAGE_FILE, queue);
+  const report = writeTriage(next, config);
   const needsRepo = {};
   for (const e of queue.filter((q) => q.status === 'needs-repo')) {
     (needsRepo[e.theme ?? 'other'] ??= []).push(e.id);
   }
   return {
     tickets: queue.length, counts: countBy(queue), estimates: estimatesNeeded(next), needsRepo,
-    queue: path.join(stateDir(), TRIAGE_FILE),
+    queue: path.join(stateDir(), TRIAGE_FILE), triagePath: report,
   };
 }
 
