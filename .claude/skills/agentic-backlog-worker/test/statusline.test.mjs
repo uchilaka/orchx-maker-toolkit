@@ -123,3 +123,39 @@ test('a corrupt state file self-heals', () => {
   assert.deepStrictEqual(saved(home), { five_hour: w(19, 500) });
   assert.deepStrictEqual(leftovers(home), []);
 });
+
+test('stale-lock break works with a GNU-style stat (-f is a junk report, -c %Y is the epoch)', async () => {
+  const home = tmpHome();
+  withLock(home, 60);
+  const bin = mkdtempSync(path.join(tmpdir(), 'abw-stat-'));
+  const stub = path.join(bin, 'stat');
+  writeFileSync(stub, [
+    '#!/bin/bash',
+    'if [ "$1" = "-c" ]; then exec /usr/bin/env stat_real_epoch "$3"; fi',
+    'echo "  File: \\"$2\\"  ID: 0 Namelen: 255 Type: ext2/ext3"; exit 1',
+  ].join('\n'));
+  // The stub's "-c %Y" answers with the real mtime via a second helper on PATH.
+  writeFileSync(path.join(bin, 'stat_real_epoch'),
+    '#!/bin/bash\n/usr/bin/stat -f %m "$1" 2>/dev/null || /usr/bin/stat -c %Y "$1"\n');
+  for (const f of ['stat', 'stat_real_epoch']) spawnSync('chmod', ['+x', path.join(bin, f)]);
+  spawnSync('bash', [SCRIPT], {
+    input: payload({ five_hour: w(19, 500) }),
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+  });
+  await settle(home, () => existsSync(stateFile(home)));
+  assert.strictEqual(saved(home).five_hour.used_percentage, 19);
+});
+
+test('an old lock that is a regular file cannot be removed: job gives up within 5s', () => {
+  const home = tmpHome();
+  mkdirSync(stateDir(home), { recursive: true });
+  writeFileSync(lockDir(home), '');
+  const t = new Date(Date.now() - 60_000);
+  utimesSync(lockDir(home), t, t);
+  const t0 = Date.now();
+  const r = run(home, { five_hour: w(19, 500) }, true); // foreground, so the job's lifetime is observable
+  assert.ok(r.error === undefined && r.status === 0, `did not exit cleanly: ${r.error}`);
+  assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0}ms`);
+  assert.ok(!existsSync(stateFile(home)), 'write must be skipped');
+});

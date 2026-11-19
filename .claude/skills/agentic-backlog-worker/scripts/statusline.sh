@@ -31,15 +31,19 @@ snapshot() {
   # because the next tick rewrites the snapshot and the guard fails closed on
   # a stale one. A lock is broken only when its own mtime is over 10s old
   # (a holder SIGKILLed mid-write never runs its trap).
-  tries=0
+  deadline=$(($(date +%s) + 3))
   until mkdir "$lock" 2>/dev/null; do
-    mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null)
-    if [ -n "$mtime" ] && [ $(($(date +%s) - mtime)) -gt 10 ]; then
-      rmdir "$lock" 2>/dev/null
-      continue
-    fi
-    tries=$((tries + 1))
-    [ "$tries" -ge 150 ] && return 0
+    # GNU first: on GNU stat, -f is "filesystem status" and prints a report to
+    # stdout. BSD stat rejects -c on stderr only. Non-numeric means "not stale".
+    mtime=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)
+    case "$mtime" in
+      ''|*[!0-9]*) ;;
+      *) [ $(($(date +%s) - mtime)) -gt 10 ] && rmdir "$lock" 2>/dev/null && continue ;;
+    esac
+    # A failed break attempt falls through to the deadline check and sleep, so
+    # the ~3s bound holds (by wall clock, not poll count) even when the stale
+    # lock cannot be removed.
+    [ "$(date +%s)" -ge "$deadline" ] && return 0
     sleep 0.02
   done
   # Own lock and own temp file only; rmdir never touches a foreign lock's contents.
@@ -67,8 +71,8 @@ if echo "$input" | jq -e '.rate_limits' >/dev/null 2>&1; then
   if [ -n "$ABW_STATUSLINE_FOREGROUND" ]; then
     snapshot   # test seam: lets tests observe the write deterministically
   else
-    # Detached, so a cancelled parent can't interrupt the write and the bar
-    # never waits on it.
+    # Detached, so the bar never waits on the write. A process-group kill still
+    # takes the child down and leaves a lock, which the 10s age check clears.
     ( snapshot ) </dev/null >/dev/null 2>&1 &
   fi
 fi
