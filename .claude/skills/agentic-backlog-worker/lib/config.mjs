@@ -26,6 +26,8 @@ export const stateDir = () =>
   process.env.ABW_STATE_DIR || path.join(home(), '.claude', 'state', 'agentic-backlog-worker');
 export const runsDir = () =>
   process.env.ABW_RUNS_DIR || path.join(home(), 'project-plans', 'agentic-backlog-worker');
+export const repoRulesPath = () =>
+  process.env.ABW_REPO_RULES || path.join(home(), '.config', 'agentic-backlog-worker', 'repo-rules.yml');
 export const snapshotPath = () =>
   process.env.ABW_SNAPSHOT || path.join(home(), '.claude', 'state', 'statusline', 'rate-limits.json');
 

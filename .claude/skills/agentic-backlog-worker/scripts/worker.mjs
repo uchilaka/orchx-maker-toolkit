@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson,
+  loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson, repoRulesPath,
 } from '../lib/config.mjs';
 import { readUsage, capStatus } from '../lib/usage.mjs';
 import { clean } from '../lib/sanitize.mjs';
@@ -24,6 +24,7 @@ import {
 import {
   loadBaseline, emptyBaseline, validateFetched, computeDelta,
 } from '../lib/baseline.mjs';
+import { appendRule, keyProblem } from '../lib/repo-rules.mjs';
 
 const estimatesBlocked = (teams) =>
   `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
@@ -620,6 +621,16 @@ function delta(opts) {
   return computeDelta(baselineOrEmpty(), fetched, { reconcile: !!opts.reconcile, full: !!opts.full });
 }
 
+// Records a lasting repo answer. The repo passes the same checks `start` applies to a queued
+// ticket, so a rule can never route work somewhere `start` would refuse.
+function rule(key, repo) {
+  const problem = keyProblem(key);
+  if (problem) fail(problem);
+  const real = checkRepo(key, repo, 'queued');
+  appendRule(repoRulesPath(), key, real);
+  return { ok: true, key, repo: real };
+}
+
 // --- dispatch --------------------------------------------------------------------------------
 
 async function main(argv) {
@@ -640,7 +651,7 @@ async function main(argv) {
       full: { type: 'boolean' },
     },
   });
-  const [cmd, arg] = positionals;
+  const [cmd, arg, arg2] = positionals;
   switch (cmd) {
     case 'preflight': return preflight(opts);
     case 'set-reset': return setReset(arg);
@@ -655,6 +666,7 @@ async function main(argv) {
     case 'close-out': return closeOut();
     case 'debrief': return debrief();
     case 'delta': return delta(opts);
+    case 'rule': return rule(arg, arg2);
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }
 }
