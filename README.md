@@ -38,7 +38,7 @@ The **OrchX Maker Toolkit** aims to provide a canonical, open-source distributio
 <!-- TODO(LAR-371): `mise run bundle` also fires postinstall, so the ordering rationale below is not quite accurate. -->
 Requires Gemini CLI `>=0.37.0`. Tooling is managed via [mise](https://mise.jdx.dev/) and Homebrew. Run these in order — the second step depends on binaries the first one installs:
 ```bash
-mise run bundle   # Homebrew dependencies from the Brewfile: gemini-cli, gitleaks, git-crypt, …
+mise run bundle   # Homebrew dependencies from the Brewfile: gemini-cli, gitleaks, git-crypt, … (dev-only casks: see docs/brewfile.md)
 mise install      # pinned node/direnv, then the postinstall hook
 ```
 The `postinstall` hook runs two tasks, each of which can be re-run on its own:
