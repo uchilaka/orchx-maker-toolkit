@@ -55,9 +55,35 @@ test('frontmatter names the agent and describes it', () => {
   assert.ok(fm.description && fm.description.includes('/agentic-backlog-worker'));
 });
 
-test('no tools or model key, so the agent inherits everything including Agent', () => {
-  assert.ok(!('tools' in fm));
+// Live review SEC3: below the cap only the model stands between ticket text and the tools, so
+// the agent gets exactly what its procedure uses. Agent stays for the security-reviewer fan-out;
+// web access and every other MCP server stay out.
+const TOOLS = [
+  'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'Agent', 'Skill',
+  'mcp__linear__get_issue', 'mcp__linear__list_comments', 'mcp__linear__save_issue',
+  'mcp__linear__save_comment', 'mcp__linear__create_issue_label', 'mcp__linear__create_attachment',
+];
+
+test('tools is the exact list the procedure needs: Agent in, web tools out; no model key', () => {
+  assert.strictEqual(typeof fm.tools, 'string');
+  const tools = fm.tools.split(',').map((t) => t.trim());
+  assert.deepStrictEqual(tools, TOOLS);
+  assert.ok(tools.includes('Agent'));
+  for (const t of tools) assert.ok(!/^(WebFetch|WebSearch)$/.test(t), t);
+  assert.ok(tools.filter((t) => t.startsWith('mcp__')).every((t) => t.startsWith('mcp__linear__')));
   assert.ok(!('model' in fm));
+});
+
+test('every Linear tool the body calls is in the tools list', () => {
+  const called = new Set(body.match(/mcp__linear__\w+/g));
+  for (const t of called) assert.ok(TOOLS.includes(t), t);
+});
+
+// Live review SIM6: the guard allows quoted plain-word messages, so the doc must not forbid quotes.
+test('capped rules match the guard: quotes allowed for plain words, grammar in usage-guard.mjs', () => {
+  assert.ok(!body.includes('metacharacters or quotes'));
+  assert.match(body, /plain words in a quoted message/);
+  assert.ok(body.includes('`scripts/usage-guard.mjs`'));
 });
 
 test('PreToolUse hook runs the usage guard on every tool', () => {

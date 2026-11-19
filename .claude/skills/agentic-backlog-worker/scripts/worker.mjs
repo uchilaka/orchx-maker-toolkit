@@ -8,7 +8,9 @@
 import {
   readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson,
@@ -204,6 +206,24 @@ async function windowCmd(opts) {
   }
 }
 
+// The checkouts of this toolkit, which hold the usage guard's own source: the repo root containing
+// .claude/skills/agentic-backlog-worker, plus its main checkout when that root is a worktree.
+// Each one and its `<checkout>-worktrees/` sibling are off-limits as ticket repos (live review
+// SEC4). Throws when the root can't be resolved, which checkRepo turns into a rejection.
+function toolkitCheckouts() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = realpathSync(path.resolve(here, '..', '..', '..', '..'));
+  const roots = new Set([root]);
+  try {
+    const common = execFileSync('git', ['-C', root, 'rev-parse', '--git-common-dir'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    roots.add(realpathSync(path.dirname(path.resolve(root, common))));
+  } catch { /* not a git checkout (e.g. a copied install): the root alone */ }
+  return [...roots];
+}
+
+const within = (p, dir) => p === dir || p.startsWith(dir + path.sep);
+
 // The repo is where a ticket agent will create worktrees and run code, and the triage that names
 // it read untrusted ticket text. So it must resolve (symlinks and `..` included) to a git repo
 // under the repos root. Returns the resolved path.
@@ -221,6 +241,15 @@ function checkRepo(id, repo, status) {
     fail(`${id}: repo does not exist: ${repo}`);
   }
   if (!real.startsWith(root + path.sep)) fail(`${id}: repo is not under ${reposRoot()}`);
+  let toolkit;
+  try {
+    toolkit = toolkitCheckouts();
+  } catch {
+    fail(`${id}: cannot locate the agentic-backlog-worker toolkit checkout to exclude it`);
+  }
+  if (toolkit.some((dir) => within(real, dir) || within(real, `${dir}-worktrees`))) {
+    fail(`${id}: repo is the agentic-backlog-worker toolkit checkout or one of its worktrees: ${repo}`);
+  }
   // A directory, not just present: a linked worktree's .git is a file, and the ticket agent
   // would nest its own worktree inside it.
   let gitDir = false;

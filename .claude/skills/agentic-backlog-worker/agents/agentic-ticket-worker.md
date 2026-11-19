@@ -1,6 +1,7 @@
 ---
 name: agentic-ticket-worker
 description: Works one Linear ticket on its own and ends in a draft PR, a hand-off, or a capped checkpoint. Dispatched only by /agentic-backlog-worker; never invoke it directly.
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, mcp__linear__get_issue, mcp__linear__list_comments, mcp__linear__save_issue, mcp__linear__save_comment, mcp__linear__create_issue_label, mcp__linear__create_attachment
 hooks:
   PreToolUse:
     - matcher: "*"
@@ -113,10 +114,12 @@ Edit of `~/project-plans/agentic-backlog-worker/tickets/<ID>.md` or `<ID>-pr.md`
 under that dir or the state dir), `git -C <worktree> add -A`,
 `git -C <worktree> commit --no-verify -m <plain words>`,
 `git -C <worktree> push --no-verify origin <branch>`, and Linear `save_comment` and
-`save_issue`, with no shell metacharacters or quotes anywhere in the command. `--no-verify` is
-required on the commit and the push, so no worktree hook runs. Always push with
-`-C <worktree>`: the branch must then start with the worktree's own ticket id, `LAR-NNN/`. The guard (`scripts/usage-guard.mjs`) holds the exact grammar. You can only edit a file
-you already read or wrote this session, which is why the plan must be kept current.
+`save_issue`. No shell metacharacters anywhere in the command, and only
+plain words in a quoted message. `--no-verify` is required on the commit and the push, so no
+worktree hook runs. Always push with `-C <worktree>`: the branch must then start with the
+worktree's own ticket id, `LAR-NNN/`. The guard (`scripts/usage-guard.mjs`) holds the exact
+grammar. You can only edit a file you already read or wrote this session, which is why the plan
+must be kept current.
 
 When you see the deny reason (it says to checkpoint and return `RESULT {"outcome":"capped"}`),
 do exactly this and nothing else:

@@ -29,13 +29,15 @@ merge() {
       elif o == null or n.resets_at > o.resets_at then n
       elif n.resets_at == o.resets_at and n.used_percentage > o.used_percentage then n
       else o end;
-    def reading(r): [r.five_hour, r.seven_day] | map(if . then [.used_percentage, .resets_at] else null end);
+    def reading(r):
+      [r.five_hour, r.seven_day] | map(if . then [.used_percentage, .resets_at] else null end);
     ($prev.rate_limits // {}) as $o
     | {five_hour: pick($o.five_hour; .rate_limits.five_hour),
        seven_day: pick($o.seven_day; .rate_limits.seven_day)}
     | with_entries(select(.value != null)) as $merged
-    # captured_at means "last time a reading changed", not "last tick": idle sessions re-send
-    # old readings forever. A stale unchanged reading therefore ages out and fails closed, by design.
+    # captured_at means "last time a reading changed", not "last tick": idle sessions
+    # re-send old readings forever. A stale unchanged reading ages out and fails closed,
+    # by design.
     | {captured_at: (if $prev.captured_at == null or reading($merged) != reading($o)
                      then (now|floor) else $prev.captured_at end),
        rate_limits: $merged}' <<<"$input" > "$tmp"

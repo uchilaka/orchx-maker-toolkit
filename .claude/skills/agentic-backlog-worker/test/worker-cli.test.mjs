@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import {
-  mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync,
+  mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, realpathSync,
 } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -741,4 +741,22 @@ test('window: 7d at or above its cap is an error at once, not a 5h wait', async 
   assert.deepStrictEqual(waited.json, { error: '7d usage at or above cap' });
   box.snapshot({ five: 10, seven: 74 });
   assert.strictEqual(box.run(['window']).code, 0);
+});
+
+// --- live review SEC4 --------------------------------------------------------------------------
+
+// The repo root holding this skill, and its main checkout when this is a worktree: the guard's
+// own source, which a ticket agent must never be pointed at.
+const TOOLKIT = realpathSync(path.resolve(path.dirname(CLI), '..', '..', '..', '..'));
+const TOOLKIT_MAIN = realpathSync(path.dirname(path.resolve(TOOLKIT,
+  execFileSync('git', ['-C', TOOLKIT, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim())));
+
+test('start: the toolkit checkout itself, or one of its worktrees, is never a ticket repo', () => {
+  const box = sandbox();
+  for (const repo of new Set([TOOLKIT, TOOLKIT_MAIN])) {
+    const r = box.run(['start', '--tickets', box.tickets([T('LAR-1', { repo })])],
+      { ABW_REPOS_ROOT: path.dirname(path.dirname(repo)) });
+    assert.strictEqual(r.code, 1, repo);
+    assert.match(r.json.error, /is the agentic-backlog-worker toolkit checkout/, repo);
+  }
 });
