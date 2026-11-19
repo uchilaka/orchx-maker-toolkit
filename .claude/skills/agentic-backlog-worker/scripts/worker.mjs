@@ -21,6 +21,9 @@ import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
   writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES,
 } from '../lib/run-state.mjs';
+import {
+  loadBaseline, emptyBaseline, validateFetched, computeDelta,
+} from '../lib/baseline.mjs';
 
 const estimatesBlocked = (teams) =>
   `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
@@ -591,6 +594,32 @@ function debrief() {
   return { path: file, status };
 }
 
+// --- triage baseline -------------------------------------------------------------------------
+
+// The JSON array in `file`, or a failure naming the flag it came from.
+function readJsonArg(file, flag) {
+  if (!file) fail(`${flag} <file.json> is required`);
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    return fail(`cannot read ${flag}: ${err.message}`);
+  }
+}
+
+const baselineOrEmpty = () => loadBaseline(stateDir()) ?? emptyBaseline();
+
+// Reports which fetched tickets need a verdict. Writes nothing: merge records the outcome.
+function delta(opts) {
+  let fetched;
+  try {
+    fetched = validateFetched(readJsonArg(opts.fetched, '--fetched'));
+  } catch (err) {
+    if (err instanceof CliError) throw err;
+    fail(err.message);
+  }
+  return computeDelta(baselineOrEmpty(), fetched, { reconcile: !!opts.reconcile, full: !!opts.full });
+}
+
 // --- dispatch --------------------------------------------------------------------------------
 
 async function main(argv) {
@@ -606,6 +635,9 @@ async function main(argv) {
       deadline: { type: 'string' },
       wait: { type: 'boolean' },
       loop: { type: 'boolean' },
+      fetched: { type: 'string' },
+      reconcile: { type: 'boolean' },
+      full: { type: 'boolean' },
     },
   });
   const [cmd, arg] = positionals;
@@ -622,6 +654,7 @@ async function main(argv) {
     case 'stop': return stop(opts);
     case 'close-out': return closeOut();
     case 'debrief': return debrief();
+    case 'delta': return delta(opts);
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }
 }

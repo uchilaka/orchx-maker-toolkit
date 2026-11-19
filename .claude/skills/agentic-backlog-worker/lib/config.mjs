@@ -11,6 +11,10 @@ export const DEFAULTS = Object.freeze({
   snapshot_max_age_min: 15,
   cost_prior_s: 5,
   cost_prior_m: 12,
+  // Days a triage baseline may go without a full Backlog/Todo listing (the reconcile).
+  full_triage_after_days: 14,
+  // Queue order of themes; a theme not listed sorts after the last one.
+  theme_order: Object.freeze(['bugs', 'security', 'ci-pinning', 'chores', 'cleanups', 'tests', 'features']),
 });
 
 // ABW_* overrides are test-only: SKILL.md hardcodes the default paths.
@@ -60,6 +64,11 @@ const SCHEMA = {
   snapshot_max_age_min: { kind: 'number', check: positive('snapshot_max_age_min') },
   cost_prior_s: { kind: 'number', check: positive('cost_prior_s') },
   cost_prior_m: { kind: 'number', check: positive('cost_prior_m') },
+  full_triage_after_days: { kind: 'number', check: positive('full_triage_after_days') },
+  theme_order: {
+    kind: 'list',
+    check: (v) => (v.length > 0 ? null : 'theme_order must list at least one theme'),
+  },
 };
 
 // Drops a `# comment`. Config values never contain `#`, so no quote handling is needed.
