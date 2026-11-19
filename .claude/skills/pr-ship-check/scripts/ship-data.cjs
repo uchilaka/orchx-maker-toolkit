@@ -5,7 +5,7 @@
 // scripts/pr_ship_check.test.cjs.
 //
 // Usage: ship-data.cjs [pr-number]
-//   Prints {repo, pr, state, url, title, viewer, author, ownWork, base, head, draft,
+//   Prints {repo, pr, state, url, title, viewer, author, ownWork, base, baseOid, head, headOid, draft,
 //   mergeable, mergeState, size, ci[], commits[], files[], gate} as JSON.
 //
 // Exit codes (the same as pr-triage's threads.cjs):
@@ -157,7 +157,7 @@ function main() {
     console.error('ship-data: no github.com origin remote');
     process.exit(4);
   }
-  const fields = 'number,state,title,url,author,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,commits,files,statusCheckRollup';
+  const fields = 'number,state,title,url,author,isDraft,mergeable,mergeStateStatus,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,changedFiles,commits,files,statusCheckRollup';
   const view = gh(['pr', 'view', ...(prArg ? [prArg] : []), '--json', fields], { allowFail: true });
   if (view.status !== 0) {
     if (/no pull requests found|could not resolve/i.test(view.stderr)) {
@@ -223,7 +223,7 @@ function main() {
   const out = {
     repo, pr: pr.number, state: pr.state, url: pr.url, title: pr.title, viewer,
     author: pr.author.login, ownWork: pr.author.login === viewer,
-    base: pr.baseRefName, head: pr.headRefName, draft: pr.isDraft,
+    base: pr.baseRefName, baseOid: pr.baseRefOid, head: pr.headRefName, headOid: pr.headRefOid, draft: pr.isDraft,
     mergeable: pr.mergeable, mergeState: pr.mergeStateStatus,
     size: { additions: pr.additions, deletions: pr.deletions, files: pr.changedFiles },
     ci,
