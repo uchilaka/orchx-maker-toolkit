@@ -38,6 +38,8 @@ function sandbox() {
   return { env, run, file, V, baseline, statePath: (n) => path.join(env.ABW_STATE_DIR, n) };
 }
 
+// TODO(LAR-508): CLI tests for brief's waiting.handoffs and waiting.capped, delta --full and
+// merge --reconcile, so a renamed flag or field can't ship green.
 test('brief: no baseline → {baseline:false, reconcileDue:true}', () => {
   const box = sandbox();
   const r = box.run(['brief']);

@@ -745,6 +745,7 @@ function merge(opts) {
 
 // A first baseline from an existing triage.json (no Linear stamps yet): see seedMatch. It has no
 // reconcile, so the next invocation does a full listing and fills in updatedAt.
+// TODO(LAR-507): replace the fake fetch with a seedBaseline(verdicts, now) in lib/baseline.mjs.
 function seed(t, verdicts) {
   const fake = verdicts.map((v) => ({
     id: v?.id, title: v?.title, statusType: 'backlog', labels: [], project: null, parentId: null,
@@ -790,6 +791,7 @@ function touched(opts) {
     const tk = b.tickets[e.id];
     tk.updatedAt = e.updatedAt;
     if (e.estimate !== undefined) {
+      // TODO(LAR-507): use the shared flatEstimate() from lib/baseline.mjs.
       const est = e.estimate;
       tk.estimate = typeof est === 'number' ? est : (typeof est?.value === 'number' ? est.value : null);
     }

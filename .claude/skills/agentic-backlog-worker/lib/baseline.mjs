@@ -64,6 +64,7 @@ export function validateFetched(list) {
     if (typeof t.title !== 'string') throw new Error(`${id}: title must be a string`);
     if (!str(t.updatedAt)) throw new Error(`${id}: updatedAt must be a non-empty string`);
     if (!str(t.statusType)) throw new Error(`${id}: statusType must be a non-empty string`);
+    // TODO(LAR-507): share one flatEstimate() with `touched` in scripts/worker.mjs.
     const est = t.estimate;
     return {
       id,
@@ -198,6 +199,8 @@ export function mergeVerdicts(baseline, fetched, verdicts, {
     }
     if (t.status === 'needs-repo') {
       const repo = resolveRepo(rules, { id, project: t.project });
+      // TODO(LAR-506): run repoProblem on every rule-promoted ticket, judged or not, and drop
+      // the needs-repo `reason` on promotion.
       if (repo) tickets[id] = { ...t, status: 'queued', repo };
     }
     if (tickets[id].status === 'queued' && isToolkitRepo(tickets[id].repo)) {
