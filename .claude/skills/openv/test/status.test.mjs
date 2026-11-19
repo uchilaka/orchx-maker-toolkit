@@ -131,10 +131,29 @@ test('refs are shown, literal values never are, in text or JSON', () => {
     assert.ok(!r.stdout.includes(CANARY) && !r.stderr.includes(CANARY), `canary leaked by ${args.join(' ')}`);
   }
   const vars = json(s.run(['status', '--json'])).profiles[0].vars;
+  // `export KEY=` lines are `ignored`: pass-cli skips them, so they never resolve.
   assert.deepStrictEqual(vars, [
-    { name: 'PASTED_SECRET', kind: 'literal', ref: null },
-    { name: 'QUOTED_REF', kind: 'ref', ref: 'pass://V/item/field' },
-    { name: 'LOG_LEVEL', kind: 'literal', ref: null },
+    { name: 'PASTED_SECRET', kind: 'ignored', ref: null, warning: 'pass-cli skips lines that start with "export "' },
+    { name: 'QUOTED_REF', kind: 'ref', ref: 'pass://V/item/field', warning: null },
+    { name: 'LOG_LEVEL', kind: 'literal', ref: null, warning: null },
+  ]);
+});
+
+// Security review #34, findings 3 and 6: status flags what export would refuse or skip.
+test('status warns about names export refuses and lines pass-cli skips', () => {
+  const s = sandbox();
+  s.write('global/dev.env', 'PROMPT_COMMAND=echo hi\nexport OLD=pass://V/i/f\nLD_PRELOAD=/x.so\nOK=pass://V/i/f\n');
+  const text = s.run(['status']).stdout;
+  assert.match(text, /PROMPT_COMMAND = \(literal\)  ! export refuses this name/);
+  assert.match(text, /LD_PRELOAD = \(literal\)  ! export refuses this name/);
+  assert.match(text, /OLD  ! ignored: pass-cli skips lines that start with "export "/);
+  assert.match(text, /^ {4}OK -> pass:\/\/V\/i\/f$/m);
+  const vars = json(s.run(['status', '--json'])).profiles[0].vars;
+  assert.deepStrictEqual(vars.map((v) => [v.name, v.kind, v.warning]), [
+    ['PROMPT_COMMAND', 'literal', 'export refuses this name'],
+    ['OLD', 'ignored', 'pass-cli skips lines that start with "export "'],
+    ['LD_PRELOAD', 'literal', 'export refuses this name'],
+    ['OK', 'ref', null],
   ]);
 });
 

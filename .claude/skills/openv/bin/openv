@@ -101,14 +101,20 @@ list_profiles() {
 # `ref` for a pass:// reference (printed: a reference names where a secret
 # lives, not what it is) or `literal` (value never printed: a literal can be a
 # secret pasted in by mistake).
+#
+# A line written `export KEY=...` is reported as `ignored`: pass-cli's dotenv
+# parser skips it, so the variable never resolves (and `export` must not print
+# KEY='' over the user's existing value).
 profile_vars() {
-  local line key value
+  local line key value ignored
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
     case "$line" in '' | '#'*) continue ;; esac
-    line="${line#export }"
+    ignored=""
+    case "$line" in 'export '*) line="${line#export }"; ignored=1 ;; esac
     case "$line" in *=*) ;; *) continue ;; esac
     key="${line%%=*}"
+    if [ -n "$ignored" ]; then printf '%s\tignored\t\n' "$key"; continue; fi
     value="${line#*=}"
     value="${value%\"}"; value="${value#\"}"
     value="${value%\'}"; value="${value#\'}"
@@ -117,6 +123,27 @@ profile_vars() {
       *) printf '%s\tliteral\t\n' "$key" ;;
     esac
   done <"$1"
+}
+
+# Names `export` refuses. Each one changes how a shell or the dynamic loader
+# starts, so a profile that sets one could run code in the user's terminal, which
+# matters once anything but the user can write ~/.config/openv (security review on
+# PR #34, findings 2 and 3).
+unsafe_name() {
+  case "$1" in
+    PATH | IFS | ENV | BASH_ENV | SHELLOPTS | BASHOPTS | PS[0-9] | PROMPT_COMMAND | \
+      ZDOTDIR | CDPATH | LD_* | DYLD_* | BASH_FUNC_*) return 0 ;;
+  esac
+  return 1
+}
+
+# The warning `status` shows for a profile variable, or nothing.
+var_warning() {
+  if [ "$2" = ignored ]; then
+    echo 'pass-cli skips lines that start with "export "'
+  elif unsafe_name "$1"; then
+    echo 'export refuses this name'
+  fi
 }
 
 # Resolves <env> to a profile file: project first, then global. Rejects path
@@ -213,7 +240,7 @@ cmd_status() {
 }
 
 status_text() {
-  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref
+  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref warning line
   echo "config:   $CONFIG_DIR"
   echo "project:  ${project:-(none: not in a git repo, global profiles only)}"
   if [ "$project" = global ]; then
@@ -231,7 +258,13 @@ status_text() {
     while IFS=$'\t' read -r env scope path; do
       echo "  $env  [$scope]  $path"
       while IFS=$'\t' read -r var kind ref; do
-        if [ "$kind" = ref ]; then echo "    $var -> $ref"; else echo "    $var = (literal)"; fi
+        warning="$(var_warning "$var" "$kind")"
+        case "$kind" in
+          ref) line="    $var -> $ref" ;;
+          ignored) line="    $var  ! ignored: $warning"; warning="" ;;
+          *) line="    $var = (literal)" ;;
+        esac
+        echo "$line${warning:+  ! $warning}"
       done < <(profile_vars "$path")
     done <<<"$profiles"
   fi
@@ -244,7 +277,7 @@ status_text() {
 }
 
 status_json() {
-  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref first sep
+  local project="$1" vfile="$2" profiles="$3" login="$4" link="$5" env scope path var kind ref first sep warning
   printf '{"config":%s,"project":%s,' "$(json_str "$CONFIG_DIR")" "$( [ -n "$project" ] && json_str "$project" || echo null)"
   printf '"vaults":{"file":%s,"names":[' "$( [ -n "$vfile" ] && json_str "$vfile" || echo null)"
   sep=""
@@ -261,7 +294,9 @@ status_json() {
       printf '{"env":%s,"scope":%s,"path":%s,"vars":[' "$(json_str "$env")" "$(json_str "$scope")" "$(json_str "$path")"
       sep=""
       while IFS=$'\t' read -r var kind ref; do
-        printf '%s{"name":%s,"kind":%s,"ref":%s}' "$sep" "$(json_str "$var")" "$(json_str "$kind")" "$( [ "$kind" = ref ] && json_str "$ref" || echo null)"
+        warning="$(var_warning "$var" "$kind")"
+        printf '%s{"name":%s,"kind":%s,"ref":%s,"warning":%s}' "$sep" "$(json_str "$var")" "$(json_str "$kind")" \
+          "$( [ "$kind" = ref ] && json_str "$ref" || echo null)" "$( [ -n "$warning" ] && json_str "$warning" || echo null)"
         sep=","
       done < <(profile_vars "$path")
       printf ']}'
@@ -299,9 +334,11 @@ cmd_run() {
   exec pass-cli run --env-file "$profile" -- "$@"
 }
 
-# Refuses under any known agent env var OR without a TTY on stdin (covers
-# unknown agents, since agent Bash tools don't attach a terminal to stdin, while
-# `eval "$(openv export dev)"` in a user's interactive terminal keeps stdin as a TTY).
+# Refuses under a known agent env var, or without a TTY on stdin (agent Bash
+# tools don't attach one; `eval "$(openv export dev)"` in a terminal keeps it).
+# These checks are ADVISORY: they stop accidents, not a determined agent, which
+# can unset the env vars and wrap the call in a pseudo-terminal (`script`,
+# `pty.spawn`). The real boundary is the agent having no pass-cli login.
 cmd_export() {
   if [ -n "${CLAUDECODE:-}" ] || [ -n "${OPENCODE_SESSION_ID:-}" ]; then
     die "export is disabled inside agent sessions; use 'openv run <env> -- <cmd>' instead"
@@ -313,30 +350,36 @@ cmd_export() {
     echo "Usage: openv export <env>" >&2
     exit 64
   fi
-  local env="$1" profile var kind _ seen=" "
-  local -a keys=()
+  local env="$1" profile var kind _ wanted=" "
   profile="$(resolve_profile "$env")"
   while IFS=$'\t' read -r var kind _; do
+    [ "$kind" != ignored ] || continue
+    if unsafe_name "$var"; then
+      die "refusing to export $var: it changes how a shell or the loader starts ($profile)"
+    fi
     case "$var" in
       '' | [0-9]* | *[!A-Za-z0-9_]*) continue ;;
     esac
-    case "$seen" in *" $var "*) continue ;; esac
-    seen="$seen$var "
-    keys+=("$var")
+    wanted="$wanted$var "
   done < <(profile_vars "$profile")
-  [ "${#keys[@]}" -gt 0 ] || return 0
+  [ "$wanted" != " " ] || return 0
   require_pass_cli
-  # Resolved via pass-cli's own dotenv + pass:// parser (no second parser).
-  # Values are single-quoted with zero single quotes inside the -c script body.
-  exec pass-cli run --no-masking --env-file "$profile" -- "$BASH" -c '
-    qt=$(printf "\047")
-    rep="${qt}\\${qt}${qt}"
-    for k in "$@"; do
-      eval "v=\${$k-}"
-      q="${v//$qt/$rep}"
-      printf "export %s=%s%s%s\n" "$k" "$qt" "$q" "$qt"
-    done
-  ' _ "${keys[@]}"
+  # pass-cli's own dotenv + pass:// parser resolves the profile (no second
+  # parser), and `env -0` prints the result. No shell starts with the profile's
+  # variables in its environment, so none of them can hook shell startup, and
+  # this function has no variables a profile name could shadow. The sentinel
+  # proves pass-cli ran `env`, since a process substitution hides its exit code.
+  local entry name value qt="'" rep ok="" out=""
+  rep="${qt}\\${qt}${qt}"
+  while IFS= read -r -d '' entry; do
+    name="${entry%%=*}"
+    if [ "$name" = __OPENV_RESOLVED ]; then ok=1; continue; fi
+    case "$wanted" in *" $name "*) ;; *) continue ;; esac
+    value="${entry#*=}"
+    out="${out}export $name=$qt${value//$qt/$rep}$qt"$'\n'
+  done < <(pass-cli run --no-masking --env-file "$profile" -- /usr/bin/env -0 __OPENV_RESOLVED=1)
+  [ -n "$ok" ] || die "pass-cli could not resolve $profile (logged in? try 'openv status --check')"
+  printf '%s' "$out"
 }
 
 main() {

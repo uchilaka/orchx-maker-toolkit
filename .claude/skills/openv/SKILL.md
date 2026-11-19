@@ -19,6 +19,12 @@ only through `openv run <env> -- <cmd>`, which passes them to the child process 
 them in its output. `openv export` is for the user's own terminal, and refuses to run
 under an agent.
 
+**What actually protects the secrets.** openv keeps values out of a session that
+follows these rules. It is not a boundary against an agent that's trying: an agent with
+a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value inside
+`openv run`, or get past `export`'s checks. The real boundary is the agent having no
+`pass-cli` login of its own.
+
 ## Requirements
 
 - `bash` (3.2, the macOS default, or later) and `git`.
@@ -54,7 +60,10 @@ secret values, so it's safe to read and show.
 ```
 
 - `<project>` is the main checkout's directory name, so every worktree of a repo shares
-  one set of profiles.
+  one set of profiles. It is the name only: two repos with the same directory name
+  (say `~/work/api` and an untrusted clone at `~/oss/api`) share profiles too, and
+  `openv run` in the clone hands its code the same secrets. Rename one checkout's
+  directory to keep them apart.
 - A project profile wins over a global profile with the same name.
 - Outside a git repo, only global profiles apply.
 
@@ -67,8 +76,14 @@ LOG_LEVEL=debug
 
 Lines whose value starts with `pass://` are references. Any other value is a literal,
 passed through as written. Write `KEY=value` with no `export ` prefix (`pass-cli run`
-skips lines starting with `export `). Use share and item IDs rather than names, so
-renaming a vault or item can't silently break a reference.
+skips lines starting with `export `, and `status` flags them as ignored). Use share and
+item IDs rather than names, so renaming a vault or item can't silently break a
+reference.
+
+`export` refuses a profile that sets a variable which changes how a shell or the
+dynamic loader starts: `PATH`, `IFS`, `ENV`, `BASH_ENV`, `SHELLOPTS`, `BASHOPTS`,
+`PS0`–`PS9`, `PROMPT_COMMAND`, `ZDOTDIR`, `CDPATH`, `LD_*`, `DYLD_*` and `BASH_FUNC_*`.
+`status` flags them.
 
 ## Show the current setup
 
@@ -108,8 +123,18 @@ eval "$(openv export <env>)"
 ```
 
 Works in both `zsh` and `bash`, and safely quotes spaces, quotes, `$` and newlines.
-Refuses to run under `CLAUDECODE`, `OPENCODE_SESSION_ID`, or without a TTY on stdin
-(which covers other agent harnesses).
+Refuses to run under `CLAUDECODE`, `OPENCODE_SESSION_ID`, or without a TTY on stdin.
+Those checks are advisory: they stop an agent from running it by accident, not one
+that's trying, which can unset the variables and wrap the call in a pseudo-terminal.
+
+Exported values stay in that shell, and every program started from it inherits them,
+including an agent: run `claude` or `opencode` in the same terminal afterwards and its
+environment holds every value, unmasked. Start agents from a different terminal, or
+load into a subshell you `exit` when done:
+
+```sh
+openv-sh() { ( eval "$(openv export "$1")" && exec "${SHELL:-/bin/sh}" ); }
+```
 
 Optional shell helper for `~/.zshrc` or `~/.bashrc`:
 

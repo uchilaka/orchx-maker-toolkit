@@ -20,7 +20,7 @@ import os, subprocess, sys
 args = sys.argv[1:]
 with open(os.environ['PASS_CALLS'], 'a') as f:
   f.write(' '.join(args) + '\\n')
-if args[:1] != ['run']:
+if args[:1] != ['run'] or os.environ.get('PASS_FAIL'):
   sys.exit(1)
 i = 1
 env_file = None
@@ -38,7 +38,8 @@ env = os.environ.copy()
 secrets = []
 for line in open(env_file):
   line = line.rstrip('\\n')
-  if not line or line.lstrip().startswith('#') or '=' not in line:
+  # Like the real pass-cli, which skips dotenv lines written as \`export KEY=...\`.
+  if not line or line.lstrip().startswith(('#', 'export ')) or '=' not in line:
     continue
   k, v = line.split('=', 1)
   if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
@@ -196,6 +197,53 @@ test('eval "$(openv export dev)" works in both zsh and bash, including quotes, $
     const line = r2.stdout.trim().split('\n').pop().trim();
     assert.deepStrictEqual(JSON.parse(line), [CANARY_A, CANARY_WEIRD, 'hello']);
   });
+});
+
+// Security review #34, finding 2 and 3: a profile that sets a shell-startup or
+// loader variable could run code in the resolving process or in the user's shell.
+test('openv export refuses a profile that sets shell-startup or loader variables, before calling pass-cli', () => {
+  const names = ['BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'PS4', 'PROMPT_COMMAND', 'PATH', 'IFS',
+    'ZDOTDIR', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES', 'BASH_FUNC_printf%%'];
+  for (const name of names) {
+    const s = sandbox();
+    const loot = path.join(s.root, 'loot');
+    const evil = path.join(s.root, 'evil.sh');
+    writeFileSync(evil, `echo "$SECRET" > ${loot}\n`);
+    s.write('global/dev.env', `SECRET=pass://V/i/f\n${name}=${evil}\n`);
+    const r = s.runPty('/bin/bash', `/bin/bash ${SCRIPT} export dev`);
+    assert.strictEqual(r.status, 1, `${name}: ${r.stdout}`);
+    assert.match(r.stdout, new RegExp(`refusing to export.*${name.replace(/[%$]/g, '\\$&')}`), name);
+    assert.ok(!r.stdout.includes(CANARY_A), name);
+    assert.ok(!existsSync(loot), `${name}: startup file ran`);
+    assert.deepStrictEqual(s.passCalls(), [], name);
+  }
+});
+
+// Finding 5: the resolver must not have its own variables that shadow profile ones.
+test('openv export keeps values for variables named k, v, q, qt and rep', () => {
+  const s = sandbox();
+  s.write('global/dev.env', 'k=pass://V/i/f\nv=hello\nq=x\nqt=y\nrep=z\n');
+  const r = s.runPty('/bin/bash', `eval "$(/bin/bash ${SCRIPT} export dev)"; python3 -c "import json,os; print(json.dumps([os.environ[n] for n in ('k','v','q','qt','rep')]))"`);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.deepStrictEqual(JSON.parse(r.stdout.trim().split('\n').pop()), [CANARY_A, 'hello', 'x', 'y', 'z']);
+});
+
+// Finding 6: pass-cli skips `export KEY=` lines, so openv must not print KEY=''.
+test('openv export leaves a variable alone when its profile line starts with "export "', () => {
+  const s = sandbox();
+  s.write('global/dev.env', 'export KEEP=pass://V/i/f\nOTHER=hello\n');
+  const r = s.runPty('/bin/bash', `KEEP=original; export KEEP; out="$(/bin/bash ${SCRIPT} export dev)"; printf '%s\\n---\\n' "$out"; eval "$out"; echo "KEEP=$KEEP OTHER=$OTHER"`);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.ok(!/export KEEP=/.test(r.stdout), r.stdout);
+  assert.match(r.stdout, /KEEP=original OTHER=hello/);
+});
+
+test('openv export fails, printing nothing to eval, when pass-cli cannot resolve the profile', () => {
+  const s = sandbox();
+  s.write('global/dev.env', 'SECRET=pass://V/i/f\nPLAIN=hello\n');
+  const r = s.runPty('/bin/bash', `out="$(/bin/bash ${SCRIPT} export dev)"; rc=$?; printf 'rc=%s out=[%s]\\n' "$rc" "$out"`, { env: { PASS_FAIL: '1' } });
+  assert.match(r.stdout, /could not resolve/);
+  assert.match(r.stdout, /rc=1 out=\[\]/);
 });
 
 test('openv export handles an empty profile without calling pass-cli', () => {
