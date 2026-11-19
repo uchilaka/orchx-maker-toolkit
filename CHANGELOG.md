@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`agentic-backlog-worker`:** works a Linear backlog ticket by ticket within a usage budget. Globally mounted but not in `marketplace.json`. Ships the `agentic-ticket-worker` agent, a SessionStart hook that reports unfinished runs, and a status line, all through `install/hooks.json`.
+- **Installer agents and `statusLine`:** `install:claude-global` links a skill's `agents/*.md` into `~/.claude/agents/` and applies an optional `statusLine` from `install/hooks.json`, behind the same prompt as hooks. Uninstall reverses both.
 - **`pick-model`:** picks the model to keep for a whole session in Claude Code or OpenCode, balancing cost against how hard the work is. Its estimator (`scripts/session-cost.mjs`) prices a session from live OpenRouter rates and, with `OPENROUTER_API_KEY` set, shortlists only the models that key's guardrails allow. Recommends only; never switches.
 - **`hand-off`:** generates a directional, copy-pasteable hand-off prompt between harnesses (`opencode -> claude-code`, `claude-code -> opencode`, `* -> gemini`, or same-harness reset), gathering live git/worktree/PR state, plan progress, machine side effects, and harness-specific gaps (hooks, subagents, policies, secrets).
 - **`browse` in the plugin:** `/browse` now ships in `orchx-maker`, and a new `hot-reload-preview` plugin adds its session-start autostart hook. The skill sets the folder the hook serves (`browse-ctl.mjs autostart`).
