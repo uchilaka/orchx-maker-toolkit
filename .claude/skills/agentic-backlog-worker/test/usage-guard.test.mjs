@@ -327,3 +327,25 @@ test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSO
     assert.match(out.permissionDecisionReason, /^Usage guard error/, mode);
   }
 });
+
+test('capped: git -C is allowed only for a direct child of a *-worktrees directory', () => {
+  const wts = path.join(tmp, 'x', 'repo-worktrees');
+  const wt = path.join(wts, 'LAR-1');
+  mkdirSync(wt, { recursive: true });
+  mkdirSync(path.join(tmp, 'x', 'repo'), { recursive: true });
+  symlinkSync(path.join(tmp, 'x', 'repo'), path.join(wts, 'sneaky'));
+  assert.strictEqual(capped(bash(`git -C ${wt} commit -m wip`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} add -A`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} push origin LAR-1/a`)), null);
+  for (const cmd of [
+    `git -C ${path.join(tmp, 'x', 'repo')} commit -m wip`,
+    `git -C ${wts} commit -m wip`,
+    `git -C ${path.join(wts, 'sneaky')} commit -m wip`,
+    `git -C ${path.join(wts, 'nope')} commit -m wip`,
+    'git -C LAR-1 commit -m wip',
+    `git -C ${wt} -C ${wt} commit -m wip`,
+    `git commit -C ${wt} -m wip`,
+    `git -c core.editor=x -C ${wt} commit -m wip`,
+    `git -C ${wt} status`,
+  ]) assert.ok(capped(bash(cmd)), `should deny: ${cmd}`);
+});

@@ -2,7 +2,7 @@
 // PreToolUse hook for the agentic-ticket-worker subagent. Under the usage cap it returns null
 // (normal permissions apply); at or over the cap it denies every tool call except the ones that
 // checkpoint work. This is a security boundary: anything it cannot positively verify is denied.
-import { readFileSync, realpathSync, lstatSync, writeSync } from 'node:fs';
+import { readFileSync, realpathSync, lstatSync, statSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -242,15 +242,41 @@ function addAllowed(args) {
   return true;
 }
 
+// `git -C <dir>` lets a capped agent reach its worktree: subagent Bash calls reset cwd between
+// calls, so a bare `git commit` would run in the launch checkout. The directory must be absolute
+// (UNSAFE already rejects `~`) and, once symlinks are resolved, a direct child of a `*-worktrees`
+// directory, so it can't point at the main checkout or anywhere a symlink leads.
+function worktreeDirAllowed(dir) {
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
+  let real;
+  try {
+    real = realpathSync.native(dir);
+    if (!statSync(real).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return path.basename(path.dirname(real)).endsWith('-worktrees');
+}
+
 function bashAllowed(command) {
   if (typeof command !== 'string' || UNSAFE.test(command)) return false;
-  const m = command.match(/^git (add|commit|push)( |$)/);
-  if (!m) return false;
+  // Single spaces and a bare subcommand word, as before: no doubled spaces or quoted subcommands.
+  if (!/^git (-C ("[^"]*"|'[^']*'|\S+) )?(add|commit|push)( |$)/.test(command)) return false;
   const tokens = tokenize(command);
   if (!tokens) return false;
-  const args = tokens.slice(2);
-  if (m[1] === 'push') return pushAllowed(args);
-  return m[1] === 'commit' ? commitAllowed(args) : addAllowed(args);
+  let at = 1;
+  // Only a single leading `-C <dir>`; a second one, or any other git option, fails the
+  // subcommand check below.
+  if (tokens[at] === '-C') {
+    if (!worktreeDirAllowed(tokens[at + 1])) return false;
+    at += 2;
+  }
+  const sub = tokens[at];
+  const args = tokens.slice(at + 1);
+  if (sub === 'push') return pushAllowed(args);
+  if (sub === 'commit') return commitAllowed(args);
+  if (sub === 'add') return addAllowed(args);
+  return false;
 }
 
 // --- Decision --------------------------------------------------------------------------------

@@ -80,3 +80,10 @@ test('body carries the output contract and the hand-off label', () => {
   assert.ok(body.includes('RESULT {'));
   assert.ok(body.includes('agent-handoff'));
 });
+
+test('body pins git to the worktree and builds the PR from a body file', () => {
+  for (const s of ['git -C <worktree>', 'cd <worktree> &&', '--body-file', '-pr.md',
+    'fixup-worktree', 'create_issue_label', 'never quote secrets']) {
+    assert.ok(body.toLowerCase().includes(s.toLowerCase()), `body mentions ${s}`);
+  }
+});
