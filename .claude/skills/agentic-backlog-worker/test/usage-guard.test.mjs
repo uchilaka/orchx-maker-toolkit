@@ -1,6 +1,8 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync } from 'node:fs';
+import {
+  mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync, linkSync, copyFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -32,6 +34,8 @@ before(() => {
   mkdirSync(path.join(tmp, 'outside'));
   symlinkSync(path.join(tmp, 'outside'), path.join(STATE, 'escape'));
   symlinkSync(path.join(tmp, 'outside', 'nope'), path.join(STATE, 'dangling'));
+  writeFileSync(path.join(tmp, 'outside', 'secret'), 'x');
+  linkSync(path.join(tmp, 'outside', 'secret'), path.join(STATE, 'hardlink'));
 });
 
 test('under the cap decide returns null even for destructive commands', () => {
@@ -212,4 +216,112 @@ test('CLI: bad stdin, bad config and missing snapshot fail closed with valid JSO
   }
   const missing = runCli(hook, { ABW_CONFIG: cfgFile, ABW_SNAPSHOT: path.join(tmp, 'none.json') });
   assert.match(JSON.parse(missing.stdout).hookSpecificOutput.permissionDecisionReason, /no usage reading/);
+});
+
+test('capped: glob and tilde expansion cannot rewrite the refspec or args', () => {
+  for (const command of [
+    'git push origin LAR-1/*',
+    'git push origin LAR-1/[x]',
+    'git push origin LAR-1/?',
+    'git push origin "LAR-1/*"',
+    'git add *',
+    'git add ~/.ssh',
+    'git commit -m x*',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+});
+
+test('capped: commit and add flags are a closed set, matched exactly', () => {
+  for (const command of [
+    'git commit -F /etc/hosts',
+    'git commit -F ~/.ssh/id_ed25519',
+    'git commit --fil=/etc/hosts',
+    'git commit --file=/etc/hosts',
+    'git commit -m x --template=/etc/hosts',
+    'git commit --pathspec-from-file=/etc/hosts -m x',
+    'git commit --mess=x',
+    'git commit -m',
+    'git commit -am x',
+    'git commit foo.txt',
+    'git add -f .env',
+    'git add --force .env',
+    'git add --pathspec-from-file=/etc/hosts',
+    'git add --al',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+  for (const command of [
+    'git commit -m "-weird start"',
+    'git commit --message=wip -a --no-verify -q',
+    'git commit --all -m wip',
+    'git add -A',
+    'git add --all',
+    'git add -u src',
+    'git add --update',
+    'git add -- -f',
+    'git add src/a.js docs/b.md',
+  ]) {
+    assert.strictEqual(capped(bash(command)), null, `should allow ${command}`);
+  }
+});
+
+test('capped: push remote must be a remote name, and may not delete a branch', () => {
+  for (const command of [
+    'git push .. LAR-1/a',
+    'git push . LAR-1/a',
+    'git push /tmp/repo LAR-1/a',
+    'git push 1origin LAR-1/a',
+    'git push origin :LAR-2/other',
+  ]) {
+    assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
+  }
+});
+
+test('capped: a hard link inside the state dir is denied', () => {
+  assert.ok(capped(write(`${STATE}/hardlink`))?.deny);
+});
+
+test('capped: an unset or relative home denies a ~/ path, even into the state dir', () => {
+  // Point the state dir at a literal `undefined/` under cwd: the old expansion bug would land
+  // there and be allowed.
+  const saved = process.env.ABW_STATE_DIR;
+  const cwd = mkdtempSync(path.join(tmp, 'cwd-'));
+  mkdirSync(path.join(cwd, 'undefined'));
+  process.env.ABW_STATE_DIR = path.join(cwd, 'undefined');
+  try {
+    for (const home of [undefined, '', 'relative']) {
+      const prev = process.env.HOME;
+      if (home === undefined) delete process.env.HOME;
+      try {
+        const r = decide({ cwd, ...write('~/x') }, { usage: cappedUsage, config: cfg, home });
+        assert.ok(r?.deny, `home=${home}`);
+      } finally {
+        process.env.HOME = prev;
+      }
+    }
+  } finally {
+    process.env.ABW_STATE_DIR = saved;
+  }
+});
+
+test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSON', () => {
+  for (const mode of ['throws', 'missing']) {
+    const dir = mkdtempSync(path.join(tmp, 'copy-'));
+    mkdirSync(path.join(dir, 'scripts'));
+    mkdirSync(path.join(dir, 'lib'));
+    copyFileSync(GUARD, path.join(dir, 'scripts', 'usage-guard.mjs'));
+    if (mode === 'throws') {
+      writeFileSync(path.join(dir, 'lib', 'config.mjs'), "throw new Error('boom');\n");
+      writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');
+    }
+    const r = spawnSync(process.execPath, [path.join(dir, 'scripts', 'usage-guard.mjs')], {
+      input: hook,
+      encoding: 'utf8',
+    });
+    assert.strictEqual(r.status, 0, mode);
+    const out = JSON.parse(r.stdout).hookSpecificOutput;
+    assert.strictEqual(out.permissionDecision, 'deny', mode);
+    assert.match(out.permissionDecisionReason, /^Usage guard error/, mode);
+  }
 });
