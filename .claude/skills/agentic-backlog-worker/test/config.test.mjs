@@ -33,6 +33,8 @@ test('DEFAULTS carry the documented values and are frozen', () => {
   assert.deepStrictEqual({ ...DEFAULTS }, {
     usage_cap_5h: 75, usage_cap_7d: 75, max_parallel_tickets: 1, teams: ['LAR'],
     snapshot_max_age_min: 15, cost_prior_s: 5, cost_prior_m: 12,
+    full_triage_after_days: 14,
+    theme_order: ['bugs', 'security', 'ci-pinning', 'chores', 'cleanups', 'tests', 'features'],
   });
   assert.ok(Object.isFrozen(DEFAULTS));
 });
@@ -98,4 +100,11 @@ test('loadConfig() with no argument reads ABW_CONFIG', () => {
   withEnv({ ABW_CONFIG: write('usage_cap_5h: 40\n') }, () => {
     assert.strictEqual(loadConfig().usage_cap_5h, 40);
   });
+});
+
+test('full_triage_after_days and theme_order parse and validate', () => {
+  const cfg = loadConfig(write('full_triage_after_days: 7\ntheme_order: [tests, bugs]\n'));
+  assert.deepStrictEqual([cfg.full_triage_after_days, cfg.theme_order], [7, ['tests', 'bugs']]);
+  assert.throws(() => loadConfig(write('full_triage_after_days: 0\n')), /full_triage_after_days/);
+  assert.throws(() => loadConfig(write('theme_order: []\n')), /theme_order/);
 });
