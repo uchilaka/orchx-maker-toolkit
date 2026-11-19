@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`/release`** commits the release on a `release/vX.Y.Z` branch and merges it through a PR, since `main` only accepts changes through one. The tag is pushed last, on the release commit, after the merge.
 
+### Fixed
+- **`/browse` diagrams follow the theme:** switching light or dark, or an OS change under System, now redraws mermaid diagrams in place. Before, they kept the theme they loaded with until the next page load. ([LAR-477](https://linear.app/larcity-and-affiliates/issue/LAR-477))
+
 ## [0.8.0-alpha] - 2026-11-19
 
 ### Added
