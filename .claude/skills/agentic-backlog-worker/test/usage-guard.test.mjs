@@ -2,6 +2,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert';
 import {
   mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync, linkSync, copyFileSync,
+  readFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -328,20 +329,62 @@ test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSO
   }
 });
 
-test('capped: git -C is allowed only for a direct child of a *-worktrees directory', () => {
+test('capped: git -C is allowed only for a real linked worktree named like a ticket', () => {
+  const sh = (cwd, ...args) => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+  };
+  const main = path.join(tmp, 'x', 'repo');
+  mkdirSync(main, { recursive: true });
+  sh(main, 'init', '-q');
+  sh(main, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'i');
   const wts = path.join(tmp, 'x', 'repo-worktrees');
   const wt = path.join(wts, 'LAR-1');
-  mkdirSync(wt, { recursive: true });
-  mkdirSync(path.join(tmp, 'x', 'repo'), { recursive: true });
-  symlinkSync(path.join(tmp, 'x', 'repo'), path.join(wts, 'sneaky'));
-  assert.strictEqual(capped(bash(`git -C ${wt} commit -m wip`)), null);
+  sh(main, 'worktree', 'add', '-q', '-b', 'LAR-1/a', wt);
   assert.strictEqual(capped(bash(`git -C ${wt} add -A`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} commit -m wip`)), null);
   assert.strictEqual(capped(bash(`git -C ${wt} push origin LAR-1/a`)), null);
+
+  const denied = (dir, why) =>
+    assert.ok(capped(bash(`git -C ${dir} commit -m wip`)), `should deny: ${why}`);
+  // The C1 sequence: Write a .git/config under runs, create it, then try to use the directory.
+  const planted = path.join(RUNS, 'a-worktrees', 'LAR-2');
+  assert.strictEqual(capped(write(path.join(planted, '.git', 'config'))), null);
+  mkdirSync(path.join(planted, '.git'), { recursive: true });
+  writeFileSync(path.join(planted, '.git', 'config'), '[core]\n');
+  denied(planted, 'planted .git directory in runs');
+  // A planted .git file in runs pointing at a planted gitdir in runs.
+  const planted2 = path.join(RUNS, 'b-worktrees', 'LAR-3');
+  const fakeGitdir = path.join(RUNS, 'b', '.git', 'worktrees', 'LAR-3');
+  mkdirSync(planted2, { recursive: true });
+  mkdirSync(fakeGitdir, { recursive: true });
+  writeFileSync(path.join(planted2, '.git'), `gitdir: ${fakeGitdir}\n`);
+  denied(planted2, 'planted .git file in runs');
+  // Not a ticket id, and a real .git directory.
+  mkdirSync(path.join(tmp, 'evil-worktrees', 'x'), { recursive: true });
+  denied(path.join(tmp, 'evil-worktrees', 'x'), 'basename is not a ticket id');
+  mkdirSync(path.join(tmp, 'evil-worktrees', 'LAR-9', '.git'), { recursive: true });
+  denied(path.join(tmp, 'evil-worktrees', 'LAR-9'), '.git is a directory');
+  // Nested inside the agent's own worktree.
+  const nested = path.join(wt, 'inner-worktrees', 'LAR-3');
+  mkdirSync(nested, { recursive: true });
+  writeFileSync(path.join(nested, '.git'), readFileSync(path.join(wt, '.git'), 'utf8'));
+  denied(nested, 'nested inside a worktree');
+  // A .git file whose gitdir is outside the <X>/.git/worktrees/<name> shape.
+  const odd = path.join(wts, 'LAR-4');
+  mkdirSync(odd, { recursive: true });
+  mkdirSync(path.join(tmp, 'x', 'plain-gitdir'));
+  writeFileSync(path.join(odd, '.git'), `gitdir: ${path.join(tmp, 'x', 'plain-gitdir')}\n`);
+  denied(odd, 'gitdir has the wrong shape');
+  // A .git symlink, even to a valid gitdir file.
+  const link = path.join(wts, 'LAR-5');
+  mkdirSync(link, { recursive: true });
+  symlinkSync(path.join(wt, '.git'), path.join(link, '.git'));
+  denied(link, '.git is a symlink');
+  // Other cases: main repo, the parent itself, relative dir, double -C, -C after subcommand.
   for (const cmd of [
-    `git -C ${path.join(tmp, 'x', 'repo')} commit -m wip`,
+    `git -C ${main} commit -m wip`,
     `git -C ${wts} commit -m wip`,
-    `git -C ${path.join(wts, 'sneaky')} commit -m wip`,
-    `git -C ${path.join(wts, 'nope')} commit -m wip`,
     'git -C LAR-1 commit -m wip',
     `git -C ${wt} -C ${wt} commit -m wip`,
     `git commit -C ${wt} -m wip`,

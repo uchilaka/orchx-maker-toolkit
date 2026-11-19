@@ -62,8 +62,8 @@ The orchestrator gives you:
 3. **Plan.** Invoke `superpowers:writing-plans` and write the plan to
    `~/project-plans/agentic-backlog-worker/tickets/<ID>.md` with a `## Tracker`: one checkbox per
    step, each with a stable ID (`S1`, `S2`...) and the check that proves it. Keep it current
-   throughout. It is your checkpoint, and the guard only lets you edit a file under the cap if
-   you already read or wrote it earlier in the session.
+   throughout. It is your checkpoint, and the Edit tool only edits a file you already read or
+   wrote earlier in the session, which matters once the cap blocks reads.
 4. **Implement** with `superpowers:test-driven-development`. Commit at the end of each validated
    step.
 5. **Review.** If the diff touches a security surface (auth, input handling, queries, endpoints,
@@ -122,8 +122,9 @@ Below the cap, the guard does not interfere. Once capped, it denies every tool c
   forced, never a delete, with at most the flags `-u`, `--set-upstream`, `--no-verify`, `-q`,
   `--quiet` and `-v`
 - each of those three git commands may start with one `git -C <absolute worktree dir>`, and only
-  when that directory is a direct child of a `*-worktrees` directory. This is how you reach the
-  worktree, since plain `git` would run in the launch checkout.
+  when that directory is a real linked worktree named `LAR-NNN` under a `*-worktrees`
+  directory. This is how you reach the worktree, since plain `git` would run in the launch
+  checkout.
 - `mcp__linear__save_comment` and `mcp__linear__save_issue`
 
 Shell metacharacters are also denied when capped, as are newlines:

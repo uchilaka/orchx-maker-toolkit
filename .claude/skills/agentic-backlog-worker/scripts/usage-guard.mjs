@@ -2,6 +2,8 @@
 // PreToolUse hook for the agentic-ticket-worker subagent. Under the usage cap it returns null
 // (normal permissions apply); at or over the cap it denies every tool call except the ones that
 // checkpoint work. This is a security boundary: anything it cannot positively verify is denied.
+// Threat model is capped-only: a below-cap agent could pre-plant git config in the main repo, and
+// that is out of scope here.
 import { readFileSync, realpathSync, lstatSync, statSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -243,19 +245,50 @@ function addAllowed(args) {
 }
 
 // `git -C <dir>` lets a capped agent reach its worktree: subagent Bash calls reset cwd between
-// calls, so a bare `git commit` would run in the launch checkout. The directory must be absolute
-// (UNSAFE already rejects `~`) and, once symlinks are resolved, a direct child of a `*-worktrees`
-// directory, so it can't point at the main checkout or anywhere a symlink leads.
+// calls, so a bare `git commit` would run in the launch checkout. Git executes config values
+// (core.fsmonitor, core.sshCommand, filters), and a capped agent can write files under the
+// state/runs dirs, so the directory must be a genuine linked worktree whose config lives in a
+// main repo the capped agent cannot write to. All of these must hold:
+//   (a) not inside the state or runs dirs;
+//   (b) named like a ticket id (LAR-123) directly under a `*-worktrees` dir that is not itself
+//       nested under another one;
+//   (c) `<dir>/.git` is a regular file (not a symlink) holding one `gitdir: <path>` line;
+//   (d) that path resolves to `<X>/.git/worktrees/<name>`, with `<X>/.git` a real directory and
+//       `<X>` neither inside state/runs nor under any `*-worktrees` component.
+function insideGuardedDirs(real) {
+  const { stateDir, runsDir } = needLib();
+  return [stateDir(), runsDir()].some((dir) => {
+    const base = resolveClosest(path.resolve(dir));
+    // Unresolvable guard dirs: fail closed.
+    return base === null || real === base || real.startsWith(base + path.sep);
+  });
+}
+
 function worktreeDirAllowed(dir) {
   if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
-  let real;
   try {
-    real = realpathSync.native(dir);
-    if (!statSync(real).isDirectory()) return false;
+    const real = realpathSync.native(dir);
+    if (!statSync(real).isDirectory() || insideGuardedDirs(real)) return false;
+    if (!/^[A-Z]+-[0-9]+$/.test(path.basename(real))) return false;
+    if (!path.basename(path.dirname(real)).endsWith('-worktrees')) return false;
+    // Only the immediate parent may be a `*-worktrees` dir: nesting inside another worktree
+    // (which the agent can populate) is denied.
+    if (real.split(path.sep).slice(0, -2).some((c) => c.endsWith('-worktrees'))) return false;
+    const dotGit = path.join(real, '.git');
+    if (!lstatSync(dotGit).isFile()) return false;
+    const m = readFileSync(dotGit, 'utf8').match(/^gitdir: ([^\n]+)\n?$/);
+    if (!m) return false;
+    const gitdir = realpathSync.native(path.resolve(real, m[1]));
+    const parts = gitdir.split(path.sep);
+    const n = parts.length;
+    if (n < 4 || parts[n - 2] !== 'worktrees' || parts[n - 3] !== '.git') return false;
+    const main = path.dirname(path.dirname(path.dirname(gitdir)));
+    if (!lstatSync(path.join(main, '.git')).isDirectory()) return false;
+    if (insideGuardedDirs(main)) return false;
+    return !main.split(path.sep).some((c) => c.endsWith('-worktrees'));
   } catch {
     return false;
   }
-  return path.basename(path.dirname(real)).endsWith('-worktrees');
 }
 
 function bashAllowed(command) {
