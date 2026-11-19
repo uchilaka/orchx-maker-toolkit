@@ -12,7 +12,8 @@
         "./.claude/skills/patch-my-hosts",
         "./.claude/skills/llm-wikify",
         "./.claude/skills/browser-test-assist",
-        "./.claude/skills/browse"
+        "./.claude/skills/browse",
+        "./.claude/skills/pick-model"
       ]
     },
     {
