@@ -67,7 +67,7 @@ test('brief: fetchSince = triagedAt − 600 as ISO; carries counts, nextUp, need
   assert.deepStrictEqual(r.json.counts, { queued: 1, 'needs-repo': 1 });
   assert.deepStrictEqual(r.json.nextUp, [{ id: 'LAR-1', size: 'S', repo: 'x' }]);
   assert.deepStrictEqual(r.json.waiting.needsRepo, { cami: ['LAR-2'] });
-  assert.deepStrictEqual(r.json.lastDelta, { new: ['LAR-1', 'LAR-2'], changed: [], removed: [] });
+  assert.deepStrictEqual(r.json.lastDelta, { new: ['LAR-1', 'LAR-2'], changed: [], removed: [], unjudged: [] });
   assert.match(r.json.triagePath, /TRIAGE\.md$/);
 });
 

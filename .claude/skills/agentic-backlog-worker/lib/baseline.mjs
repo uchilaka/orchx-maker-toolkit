@@ -165,7 +165,7 @@ export function mergeVerdicts(baseline, fetched, verdicts, {
   const old = baseline.tickets;
   const tickets = { ...old };
   const byId = new Map(fetched.map((f) => [f.id, f]));
-  const { removed } = computeDelta(baseline, fetched, { reconcile });
+  const { removed, classify } = computeDelta(baseline, fetched, { reconcile });
   const judged = new Set();
   verdicts.forEach((v, i) => {
     checkVerdict(v, i);
@@ -181,8 +181,11 @@ export function mergeVerdicts(baseline, fetched, verdicts, {
     if (v.reason !== undefined) t.reason = String(v.reason);
     tickets[v.id] = t;
   });
+  // Only tickets delta called unchanged take Linear's new stamps. A changed ticket that got no
+  // verdict keeps its old ones, so the next delta lists it again instead of losing it.
+  const unjudged = classify.filter((id) => !judged.has(id));
   for (const f of fetched) {
-    if (!judged.has(f.id) && tickets[f.id]) {
+    if (!judged.has(f.id) && tickets[f.id] && !unjudged.includes(f.id)) {
       tickets[f.id] = { ...tickets[f.id], ...fromLinear(f) };
     }
   }
@@ -214,6 +217,7 @@ export function mergeVerdicts(baseline, fetched, verdicts, {
       new: [...judged].filter((id) => !old[id]),
       changed: [...judged].filter((id) => old[id]),
       removed,
+      unjudged,
     },
   };
 }

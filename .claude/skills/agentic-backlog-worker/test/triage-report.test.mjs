@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, lstatSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderTriage } from '../lib/triage-report.mjs';
@@ -125,4 +127,17 @@ test('renderTriage: a long id list is capped at 20 with a count of the rest', ()
   const since = renderTriage({ baseline: b, run: null, themeOrder: THEMES }).split('## Since the last run')[1].split('##')[0];
   assert.match(since, /LAR-20, \+5 more/);
   assert.doesNotMatch(since, /LAR-21/);
+});
+
+test('R2: merge replaces a symlinked TRIAGE.md instead of writing through it', () => {
+  const box = sandbox();
+  mkdirSync(box.env.ABW_RUNS_DIR, { recursive: true });
+  const target = path.join(box.root, 'victim.txt');
+  writeFileSync(target, 'untouched\n');
+  symlinkSync(target, path.join(box.env.ABW_RUNS_DIR, 'TRIAGE.md'));
+  const r = box.run(['merge', '--fetched', box.file('f.json', [F('LAR-1')]),
+    '--verdicts', box.file('v.json', [V('LAR-1', { repo: box.repo })])]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(readFileSync(target, 'utf8'), 'untouched\n');
+  assert.strictEqual(lstatSync(r.json.triagePath).isSymbolicLink(), false);
 });

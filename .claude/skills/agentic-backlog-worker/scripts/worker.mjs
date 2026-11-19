@@ -6,7 +6,7 @@
 // Times are Unix seconds; ABW_NOW overrides the clock for tests, and ABW_POLL_S and
 // ABW_HEARTBEAT_S shorten the two loops' intervals.
 import {
-  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync,
+  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync, renameSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -670,9 +670,20 @@ const fetchedArg = (file) => {
 function writeTriage(baseline, config) {
   let run = null;
   try { run = loadRun(stateDir()); } catch { /* reported by the status hook */ }
-  mkdirSync(runsDir(), { recursive: true });
-  writeFileSync(triagePath(), renderTriage({ baseline, run, themeOrder: config.theme_order }));
-  return triagePath();
+  // Temp file plus rename: the rename replaces whatever sits at the path, a planted symlink
+  // included, instead of writing through it (the debrief path gets the same care).
+  const file = triagePath();
+  const dir = path.dirname(file);
+  mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.tmp`);
+  try {
+    writeFileSync(tmp, renderTriage({ baseline, run, themeOrder: config.theme_order }));
+    renameSync(tmp, file);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch { /* temp may not exist */ }
+    throw err;
+  }
+  return file;
 }
 
 // Why `start` would refuse `repo`, or null. checkRepo reports through fail(); this turns that
@@ -727,6 +738,7 @@ function merge(opts) {
   }
   return {
     tickets: queue.length, counts: countBy(queue), estimates: estimatesNeeded(next), needsRepo,
+    unjudged: next.lastDelta?.unjudged ?? [],
     queue: path.join(stateDir(), TRIAGE_FILE), triagePath: report,
   };
 }

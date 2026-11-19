@@ -51,7 +51,7 @@ test('merge: removed ids leave the baseline; lastDelta lists new, changed and re
   const fetched = [F('LAR-1', { updatedAt: 'later' }), F('LAR-2', { statusType: 'completed' }), F('LAR-3')];
   b = mergeVerdicts(b, fetched, [V('LAR-1', { size: 'M' }), V('LAR-3')], opts());
   assert.deepStrictEqual(Object.keys(b.tickets).sort(), ['LAR-1', 'LAR-3']);
-  assert.deepStrictEqual(b.lastDelta, { new: ['LAR-3'], changed: ['LAR-1'], removed: ['LAR-2'] });
+  assert.deepStrictEqual(b.lastDelta, { new: ['LAR-3'], changed: ['LAR-1'], removed: ['LAR-2'], unjudged: [] });
   assert.strictEqual(b.tickets['LAR-1'].updatedAt, 'later');
 });
 
@@ -279,4 +279,25 @@ test('I4: a carried queued ticket whose repo went stale is demoted to needs-repo
   assert.deepStrictEqual([t.status, t.repo], ['needs-repo', null]);
   assert.match(t.reason, /repo unusable/);
   assert.strictEqual(box.baseline().tickets['LAR-2'].status, 'queued');
+});
+
+// --- PR #41 live-review fixes ----------------------------------------------------------------
+
+test('R1: a changed ticket with no verdict stays changed and comes back as unjudged', () => {
+  let b = mergeVerdicts(emptyBaseline(), [F('LAR-1'), F('LAR-2')], [V('LAR-1'), V('LAR-2')], opts());
+  const fetched = [F('LAR-1', { updatedAt: 'edited' }), F('LAR-2', { updatedAt: 'edited' })];
+  assert.deepStrictEqual(computeDelta(b, fetched, {}).classify, ['LAR-1', 'LAR-2']);
+  b = mergeVerdicts(b, fetched, [V('LAR-1', { size: 'M' })], opts());
+  assert.deepStrictEqual(b.lastDelta.unjudged, ['LAR-2']);
+  assert.deepStrictEqual(computeDelta(b, fetched, {}).classify, ['LAR-2']);
+});
+
+test('R1: CLI merge reports unjudged ids', () => {
+  const { root, repo } = repos();
+  const box = sandbox(root);
+  box.run(['merge', '--fetched', box.file('f.json', [F('LAR-1')]), '--verdicts', box.file('v.json', [V('LAR-1', { repo })])]);
+  const r = box.run(['merge', '--fetched', box.file('f2.json', [F('LAR-1', { updatedAt: 'edited' }), F('LAR-2')]),
+    '--verdicts', box.file('v2.json', [])]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual(r.json.unjudged, ['LAR-1', 'LAR-2']);
 });

@@ -158,6 +158,8 @@ files yourself.
    It writes `$STATE/triage.json` for `start` and rewrites `TRIAGE.md`. Repo rules already
    answer some needs-repo tickets, and a ticket in this toolkit's own repo comes back `skipped`,
    since `start` refuses it. Keep `estimates`, `needsRepo`, `counts` and `triagePath`.
+   A non-empty `unjudged` lists `classify` ids you gave no verdict: classify them and merge
+   again. Until then they keep their old verdict, and the next delta lists them again.
 6. **Estimate write-back**, also on `--dry-run`, only for the tickets in `merge.estimates`
    (their Linear estimate is missing or isn't their size). Linear's T-shirt scale stores
    `points`: S=2, M=3, L=5, XL=8.
