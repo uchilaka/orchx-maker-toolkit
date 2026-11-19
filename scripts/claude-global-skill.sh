@@ -11,6 +11,10 @@
 # answers up front. With no terminal to ask and no flag, they're not added. uninstall
 # removes exactly the hooks install would add, nothing else.
 #
+# A skill's agents/*.md are linked into ~/.claude/agents/ as part of the skill link (not
+# behind --with-hooks), by the same rules. A statusLine in install/hooks.json is offered
+# like the hooks, and only set when the user has none (see claude_skill_hooks.cjs).
+#
 # Links point at the MAIN checkout, never a worktree: a link into a worktree dangles as
 # soon as that worktree is pruned. So a skill must be merged to main before it installs.
 # SKILL_SOURCE_ROOT overrides the checkout — used by the selftest, and for trying an
@@ -20,6 +24,7 @@
 #   - install over a real directory with identical content moves it to
 #     ~/.claude/skill-backups/<name>-<timestamp> first; different content is refused.
 #   - uninstall only removes a symlink that resolves into the source checkout.
+#   - an agent file is treated like a skill directory: a different real file is refused.
 set -euo pipefail
 
 usage() { echo "usage: $(basename "$0") install [--with-hooks|--no-hooks] [skill-name...] | uninstall [skill-name...]" >&2; exit 2; }
@@ -50,6 +55,7 @@ else
 fi
 src_skills="$src_root/.claude/skills"
 dest_skills="$HOME/.claude/skills"
+dest_agents="$HOME/.claude/agents"
 backups="$HOME/.claude/skill-backups"
 
 # Physical path of an existing directory (or symlink to one); empty if it doesn't resolve.
@@ -100,6 +106,61 @@ remove_hooks() {
   node "$hooks_helper" remove "$frag" "$dest" || fail "$name: its hooks were not removed"
 }
 
+# Physical path of an existing file, following symlinks; empty if it doesn't resolve.
+resolve_file() { node -e 'try{console.log(require("fs").realpathSync(process.argv[1]))}catch{}' "$1"; }
+
+# $1 name, $2 source skill dir. Links each agents/*.md into ~/.claude/agents/.
+install_agents() {
+  local name="$1" agents_src="$2/agents" f base link old backup
+  [ -d "$agents_src" ] || return 0
+  for f in "$agents_src"/*.md; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"; link="$dest_agents/$base"
+    mkdir -p "$dest_agents"
+    if [ -L "$link" ]; then
+      old="$(readlink "$link")"
+      if [ "$old" = "$f" ]; then
+        echo "$name: agent $base already installed"
+      elif [ -e "$link" ] && [ "$(resolve_file "$link")" != "$(resolve_file "$f")" ]; then
+        # Resolves to a live file that isn't ours: somebody else's agent.
+        fail "$name: agent $link points at $old, not this checkout — left alone"
+      else
+        ln -sfn "$f" "$link"
+        echo "$name: agent $base installed -> $f (was -> $old)"
+      fi
+    elif [ -e "$link" ]; then
+      if ! cmp -s "$link" "$f"; then
+        fail "$name: agent $link is a real file and differs from $f — reconcile by hand (diff \"$link\" \"$f\")"
+        continue
+      fi
+      mkdir -p "$backups"
+      backup="$backups/agent-${base%.md}-$(date +%Y%m%dT%H%M%S).md"
+      mv "$link" "$backup"
+      ln -s "$f" "$link"
+      echo "$name: agent $base installed -> $f (identical copy moved to $backup)"
+    else
+      ln -s "$f" "$link"
+      echo "$name: agent $base installed -> $f"
+    fi
+  done
+}
+
+remove_agents() {
+  local name="$1" agents_src="$2/agents" f base link
+  [ -d "$agents_src" ] || return 0
+  for f in "$agents_src"/*.md; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"; link="$dest_agents/$base"
+    [ -L "$link" ] || continue
+    if [ "$(readlink "$link")" = "$f" ] || { [ -n "$(resolve_file "$link")" ] && [ "$(resolve_file "$link")" = "$(resolve_file "$f")" ]; }; then
+      rm "$link"
+      echo "$name: agent $base uninstalled"
+    else
+      fail "$name: agent $link points at $(readlink "$link"), not this checkout — left alone"
+    fi
+  done
+}
+
 for name in "${names[@]}"; do
   case "$name" in */*|.*|'') fail "$name: invalid skill name"; continue ;; esac
   src="$src_skills/$name"
@@ -136,9 +197,11 @@ for name in "${names[@]}"; do
       ln -s "$src" "$dest"
       echo "$name: installed -> $src"
     fi
+    install_agents "$name" "$src"
     install_hooks "$name" "$src" "$dest"
 
   else
+    remove_agents "$name" "$src"
     if [ -L "$dest" ]; then
       target="$(readlink "$dest")"
       if [ "$target" = "$src" ] || { [ -n "$(resolve "$dest")" ] && [ "$(resolve "$dest")" = "$(resolve "$src")" ]; }; then
