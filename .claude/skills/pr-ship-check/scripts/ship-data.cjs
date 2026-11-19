@@ -21,26 +21,61 @@ const path = require('path');
 
 // --- the gate (pure; tested) --------------------------------------------------
 
-const SHA = /Fixed in `?([0-9a-f]{7,40})\b/i;
+// The fixing commit: "Fixed in <sha>", or "Done <sha>" in a table's status column.
+const SHA = /\b(?:Fixed in|Done)\s*`?([0-9a-f]{7,40})\b/i;
+const TRIAGE_FIX_NOW = /^\s*[-*]\s+\*\*Triage(?:\*\*:|:\*\*)\s*Fix now\b/i;
+const TABLE_SEPARATOR = /^\s*\|[\s|:-]*$/;
+// "Fix in PR" as an outcome, but not "Won't fix in PR" or "not fix in PR".
+const FIX_IN_PR = /(?<!n't |not )\bFix in PR\b/i;
+
+// A bullet hard-wrapped onto indented lines is one item: the local artifacts keep
+// their wrapping, so "Fixed in <sha>" often sits on the line after "Fix now".
+function logicalLines(markdown) {
+  const out = [];
+  let inBullet = false;
+  for (const line of markdown.split('\n')) {
+    const continuation = inBullet && /^\s+\S/.test(line) && !/^\s*([-*+]\s|\d+\.\s|\||#)/.test(line);
+    if (continuation) out[out.length - 1] += ` ${line.trim()}`;
+    else out.push(line);
+    if (!continuation) inBullet = /^\s*[-*+]\s/.test(line);
+  }
+  return out;
+}
 
 // Fix-now items come in two shapes, and only these count, so prose that happens
 // to say "fix now" is never mistaken for an item:
 //   - /live-code-review's template:  - **Triage**: Fix now — <why>[ — Fixed in `<sha>`]
-//   - a findings table row whose outcome says "Fix in PR" or "Fixed in <sha>"
+//   - a findings table row with a "Fix now" cell, or whose outcome says "Fix in PR"
+//     or "Fixed in <sha>". A header row (the one above |---|) is never an item.
+// An item without a fixing commit is open, so an unfamiliar outcome fails closed.
 function parseFixNow(markdown) {
   const items = [];
-  for (const line of markdown.split('\n')) {
+  const lines = logicalLines(markdown);
+  lines.forEach((line, i) => {
     let format = null;
-    if (/^\s*[-*]\s+\*\*Triage\*\*:\s*Fix now\b/i.test(line)) format = 'triage';
-    else if (/^\s*\|/.test(line) && !/^\s*\|[\s|:-]*$/.test(line) && /\bFix in PR\b|Fixed in `?[0-9a-f]{7,40}\b/i.test(line)) format = 'table';
-    if (!format) continue;
+    if (TRIAGE_FIX_NOW.test(line)) format = 'triage';
+    else if (/^\s*\|/.test(line) && !TABLE_SEPARATOR.test(line) && !TABLE_SEPARATOR.test(lines[i + 1] || 'x')) {
+      const cells = line.split('|').map((c) => c.trim());
+      if (cells.some((c) => /^Fix now\b/i.test(c)) || FIX_IN_PR.test(line) || SHA.test(line)) format = 'table';
+    }
+    if (!format) return;
     const m = line.match(SHA);
     items.push({ format, text: line.trim(), sha: m ? m[1].toLowerCase() : null });
-  }
+  });
   return items;
 }
 
-const BLOCKING = /\(blocking\)|🛑|\bblocker\b/i;
+// A Conventional Comments label decides when it carries a decoration:
+// "issue (blocking):" blocks, "suggestion (non-blocking):" doesn't, whatever the
+// rest of the comment says. Without one, a leading 🛑 or the word "blocker"
+// (but not "not a blocker") marks it blocking.
+const LABEL = /^[\W_]*[a-z]+\s*\((blocking|non-blocking)\)/i;
+
+function isBlocking(body) {
+  const label = body.match(LABEL);
+  if (label) return label[1].toLowerCase() === 'blocking';
+  return /^[\s*_]*🛑/.test(body) || (/\bblocker\b/i.test(body) && !/\bnot (a )?blocker\b/i.test(body));
+}
 
 // Unresolved threads whose opening comment is marked blocking, where nobody but
 // that comment's author has replied.
@@ -48,7 +83,7 @@ function blockingUnanswered(threads) {
   return threads.filter((t) => {
     if (t.isResolved || !t.comments.length) return false;
     const [first, ...rest] = t.comments;
-    if (!BLOCKING.test(first.body) || /non-blocking/i.test(first.body)) return false;
+    if (!isBlocking(first.body)) return false;
     return !rest.some((c) => c.author !== first.author);
   });
 }
@@ -94,7 +129,7 @@ function reviewRecords(project, number) {
   if (!fs.existsSync(dir)) return [];
   const re = new RegExp(`(^|_)PR-${number}_`);
   return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.md') && re.test(f) && !f.includes('_ship-check'))
+    .filter((f) => f.endsWith('.md') && re.test(f) && !f.endsWith('_ship-check.md'))
     .map((f) => path.join(dir, f));
 }
 
