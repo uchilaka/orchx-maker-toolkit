@@ -137,9 +137,11 @@ test('stale-lock break works with a GNU-style stat (-f is a junk report, -c %Y i
     'if [ "$1" = "-c" ]; then exec /usr/bin/env stat_real_epoch "$3"; fi',
     'echo "  File: \\"$2\\"  ID: 0 Namelen: 255 Type: ext2/ext3"; exit 1',
   ].join('\n'));
-  // The stub's "-c %Y" answers with the real mtime via a second helper on PATH.
+  // The stub's "-c %Y" answers with the real mtime via a second helper on PATH. GNU form
+  // first: GNU `stat -f` prints a filesystem report to stdout before failing, which would
+  // pollute the captured epoch on Linux CI; BSD `stat -c` fails with stderr only.
   writeFileSync(path.join(bin, 'stat_real_epoch'),
-    '#!/bin/bash\n/usr/bin/stat -f %m "$1" 2>/dev/null || /usr/bin/stat -c %Y "$1"\n');
+    '#!/bin/bash\n/usr/bin/stat -c %Y "$1" 2>/dev/null || /usr/bin/stat -f %m "$1"\n');
   for (const f of ['stat', 'stat_real_epoch']) spawnSync('chmod', ['+x', path.join(bin, f)]);
   spawnSync('bash', [SCRIPT], {
     input: payload({ five_hour: w(19, 500) }),
