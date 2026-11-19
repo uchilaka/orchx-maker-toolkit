@@ -18,7 +18,10 @@ const run = (home, rate_limits, sync = true) =>
   spawnSync('bash', [SCRIPT], {
     input: payload(rate_limits),
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, ...(sync ? { ABW_STATUSLINE_FOREGROUND: '1' } : {}) },
+    env: {
+      ...process.env, HOME: home, ABW_LOCK_WAIT_S: '1',
+      ...(sync ? { ABW_STATUSLINE_FOREGROUND: '1' } : {}),
+    },
   });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const leftovers = (home) => readdirSync(stateDir(home)).filter((f) => f !== 'rate-limits.json');
@@ -109,7 +112,7 @@ test('a fresh foreign lock is left in place and the write is skipped', async () 
   const home = tmpHome();
   withLock(home, 0);
   run(home, { five_hour: w(19, 500) }, false);
-  await sleep(4000); // longer than the ~3s wait
+  await sleep(2000); // longer than the ~1s wait (ABW_LOCK_WAIT_S)
   assert.ok(existsSync(lockDir(home)), 'foreign lock must survive');
   assert.ok(!existsSync(stateFile(home)), 'write must be skipped');
   assert.deepStrictEqual(leftovers(home), ['rate-limits.json.lock']);
@@ -147,7 +150,7 @@ test('stale-lock break works with a GNU-style stat (-f is a junk report, -c %Y i
   assert.strictEqual(saved(home).five_hour.used_percentage, 19);
 });
 
-test('an old lock that is a regular file cannot be removed: job gives up within 5s', () => {
+test('an old lock that is a regular file cannot be removed: job gives up within 3s', () => {
   const home = tmpHome();
   mkdirSync(stateDir(home), { recursive: true });
   writeFileSync(lockDir(home), '');
@@ -156,6 +159,6 @@ test('an old lock that is a regular file cannot be removed: job gives up within 
   const t0 = Date.now();
   const r = run(home, { five_hour: w(19, 500) }, true); // foreground, so the job's lifetime is observable
   assert.ok(r.error === undefined && r.status === 0, `did not exit cleanly: ${r.error}`);
-  assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0}ms`);
+  assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0}ms`);
   assert.ok(!existsSync(stateFile(home)), 'write must be skipped');
 });
