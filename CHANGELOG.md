@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`pr-ship-check`:** once a PR's reviews have landed and every fix-now finding is fixed, says whether it ships, whether part of it can ship ahead, and any high-confidence separation-of-concerns or simplification changes, each backed by named files or commits. It adds a missing `[Unreleased]` entry, recommends the next release version, and on a Ship verdict for your own PR adds a `ready to ship` label and moves a draft to ready for review. Runs in a background subagent; `/live-code-review` and `/pr-triage` start it when they finish.
 - **`pick-model`:** picks the model to keep for a whole session in Claude Code or OpenCode, balancing cost against how hard the work is. Its estimator (`scripts/session-cost.mjs`) prices a session from live OpenRouter rates and, with `OPENROUTER_API_KEY` set, shortlists only the models that key's guardrails allow. Recommends only; never switches.
 - **`hand-off`:** generates a directional, copy-pasteable hand-off prompt between harnesses (`opencode -> claude-code`, `claude-code -> opencode`, `* -> gemini`, or same-harness reset), gathering live git/worktree/PR state, plan progress, machine side effects, and harness-specific gaps (hooks, subagents, policies, secrets).
 - **`browse` in the plugin:** `/browse` now ships in `orchx-maker`, and a new `hot-reload-preview` plugin adds its session-start autostart hook. The skill sets the folder the hook serves (`browse-ctl.mjs autostart`).
