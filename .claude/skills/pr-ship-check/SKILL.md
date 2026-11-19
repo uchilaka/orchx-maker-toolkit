@@ -1,6 +1,6 @@
 ---
 name: pr-ship-check
-description: After a PR's reviews have landed and every fix-now finding is addressed, decide whether it ships — and whether part of it should split out and ship ahead, or be simplified or separated first. Checks the fix-now gate from the ~/pr-reviews record and the PR's review threads, then gives high-confidence recommendations only, each with the files or commits and the evidence. Use when the user says "/pr-ship-check", "is this ready to ship", "can any of this ship ahead", "should I split this PR", "ship check", or at the end of /live-code-review or /pr-triage once their fix-now items are done. Not a review: it finds no new bugs (that's /pr-review or /live-code-review) and changes no code.
+description: After a PR's reviews have landed and every fix-now finding is addressed, decide whether it ships — and whether part of it should split out and ship ahead, or be simplified or separated first. Checks the fix-now gate from the ~/pr-reviews record and the PR's review threads, then gives high-confidence recommendations only, each with the files or commits and the evidence. Use when the user says "/pr-ship-check", "is this ready to ship", "can any of this ship ahead", "should I split this PR", "ship check", or at the end of /live-code-review or /pr-triage once their fix-now items are done. Not a review: it finds no new bugs (that's /pr-review or /live-code-review) and changes no code. On a Ship verdict for your own PR it labels it "ready to ship" and moves a draft to ready for review.
 argument-hint: <pr-number>...
 # Runs in its own subagent so the session that asked stays free (asked 2026-11-19).
 # The subagent starts without the conversation, so callers pass PR numbers.
@@ -35,8 +35,8 @@ numbers. Run everything below once per PR.
 
 The session that started this sees only your final message, so end with one short block
 per PR: the verdict line, any spin-off or Step 4 item in one line each, the human-only
-steps, and the record's path and the posted comment's URL. If the gate failed, give its
-open items instead. If posting failed, say so and give the exact error.
+steps, the record's path and the posted comment's URL, and what Step 7 did (label added
+or removed, moved to ready for review). If the gate failed, give its open items instead. If posting failed, say so and give the exact error.
 
 ## Step 1: The gate
 
@@ -107,8 +107,8 @@ Skip anything already in a review record, and anything that's a matter of taste.
 
 | Verdict | When |
 |---|---|
-| **Ship** | Gate passes, required CI is green (`SKIPPED` bot checks don't count), `mergeState` is `CLEAN`, and nothing from Steps 3–4 should land first |
-| **Ship after `<step>`** | One named, small thing stands between it and merging: mark it ready (it's a draft), rebase or merge the base (`BEHIND`/`DIRTY`), wait for a running check, or land a spin-off first |
+| **Ship** | Gate passes, required CI is green (`SKIPPED` bot checks don't count), `mergeState` is `CLEAN`, and nothing from Steps 3–4 should land first. A draft can still be **Ship**: Step 7 marks it ready for review |
+| **Ship after `<step>`** | One named, small thing stands between it and merging: rebase or merge the base (`BEHIND`/`DIRTY`), wait for a running check, or land a spin-off first |
 | **Not ready** | CI fails, the gate fails, or a Step 4 item is big enough that it should change before merge |
 
 Also say, without judging it, what only a human can do: tick the PR template's "I've
@@ -129,9 +129,29 @@ Posting follows the same rule as `/live-code-review`:
 - **The user's own PR** (`ownWork: true` in the JSON): post it as one PR comment by
   default, without asking: `gh pr comment <n> --body-file <file>`. Never hard-wrap
   the body: one line per paragraph.
-- **Anyone else's PR:** show the comment and ask once whether to post it.
+- **Anyone else's PR:** don't post. This subagent can't ask the user, so hand back the
+  record's path and say the session should ask whether to post it.
 
 End the post with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+
+## Step 7: Mark a Ship verdict on the PR
+
+Only on a **Ship** verdict, and only on the user's own PR (`ownWork: true`). On anyone
+else's, hand back that it qualifies and leave the PR alone.
+
+1. Make sure the label exists (it's created once per repo):
+
+   ```bash
+   gh label list --search "ready to ship" --json name -q '.[].name' | grep -qx 'ready to ship' ||
+     gh label create "ready to ship" --color 0E8A16 --description "/pr-ship-check verdict: Ship"
+   ```
+
+2. `gh pr edit <n> --add-label "ready to ship"`
+3. If `draft` is true: `gh pr ready <n>`, which moves it to ready for review.
+
+On any other verdict, if the PR already carries the label from an earlier run, remove it
+(`gh pr edit <n> --remove-label "ready to ship"`), since that verdict no longer holds.
+Report each of these actions, or its exact error, in the hand-back.
 
 ## Chained from other skills
 
@@ -141,7 +161,7 @@ open and stop.
 
 ## Never
 
-- Change code, push, merge, mark a PR ready, approve, or resolve threads. This skill
-  recommends; the user acts.
+- Change code, push, merge, approve, or resolve threads. This skill recommends, and its
+  only actions on the PR are Step 6's comment and Step 7's label and ready-for-review.
 - Recommend a spin-off you didn't prove with Step 3's check.
 - Re-raise review findings as new ones.
