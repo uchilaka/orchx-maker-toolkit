@@ -25,7 +25,19 @@ export const runsDir = () =>
 export const snapshotPath = () =>
   process.env.ABW_SNAPSHOT || path.join(home(), '.claude', 'state', 'statusline', 'rate-limits.json');
 
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// Parsed JSON, or null when the file can't be read (missing, unreadable) or isn't valid JSON.
+// Lives here rather than with writeJsonAtomic so the usage guard's imports stay this file and
+// usage.mjs.
+export function readJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 const toNumber = (raw) => (raw.trim() === '' ? NaN : Number(raw));
 
 // Each validator receives the already-coerced value and returns an error message or null.

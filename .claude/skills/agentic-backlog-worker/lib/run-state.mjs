@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { DEFAULTS } from './config.mjs';
+import { DEFAULTS, readJson } from './config.mjs';
 
 export const TICKET_STATUSES = Object.freeze(
   ['queued', 'running', 'pr', 'handoff', 'capped', 'skipped', 'needs-repo'],
@@ -23,7 +23,7 @@ const HISTORY_FILE = 'history.json';
 
 // Temp file in the same dir (so rename is atomic) with a unique name so concurrent writers
 // never share one.
-function writeJsonAtomic(dir, name, value) {
+export function writeJsonAtomic(dir, name, value) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = path.join(dir, `.${name}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
   try {
@@ -66,6 +66,12 @@ export function saveRun(dir, run) {
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// The UTC calendar day (YYYY-MM-DD) of a Unix-seconds time.
+export const isoDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
+
+// The debrief file name of a run: RUN_<UTC start day>.md, or -2, -3 … for the nth run that day.
+export const runFileName = (run, n = 1) => `RUN_${isoDate(run.startedAt)}${n === 1 ? '' : `-${n}`}.md`;
+
 export function newRun({ now, window }) {
   const d = new Date(now * 1000);
   const id = `run-${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`
@@ -88,12 +94,8 @@ export function setTicket(run, id, patch) {
 // Cost estimation is advisory (the usage guard is the hard stop), so a missing or corrupt
 // history is just an empty one.
 export function loadHistory(dir) {
-  try {
-    const parsed = JSON.parse(readFileSync(path.join(dir, HISTORY_FILE), 'utf8'));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJson(path.join(dir, HISTORY_FILE));
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 export function recordCost(dir, { size, delta5h, tokens, shared }) {

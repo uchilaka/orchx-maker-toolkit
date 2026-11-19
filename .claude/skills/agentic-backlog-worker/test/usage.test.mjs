@@ -88,6 +88,7 @@ test('a five_hour window with resets_at <= now reads as null and is not capped b
   });
   const u = read(p);
   assert.strictEqual(u.fiveHour, null);
+  assert.strictEqual(u.fiveHourReset, true);
   assert.strictEqual(u.state, 'ok');
   assert.deepStrictEqual(capStatus(u, cfg), { capped: false, reason: '' });
 });
@@ -104,6 +105,7 @@ test('rate_limits {} reads ok with null windows and is not capped', () => {
   const u = read(snap({ captured_at: NOW - 60, rate_limits: {} }));
   assert.strictEqual(u.state, 'ok');
   assert.strictEqual(u.fiveHour, null);
+  assert.strictEqual(u.fiveHourReset, undefined); // absent, not reset
   assert.strictEqual(u.sevenDay, null);
   assert.strictEqual(capStatus(u, cfg).capped, false);
 });

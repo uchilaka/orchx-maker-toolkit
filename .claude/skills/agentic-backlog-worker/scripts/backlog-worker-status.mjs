@@ -5,7 +5,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadRun, RunStateError } from '../lib/run-state.mjs';
+import { loadRun, RunStateError, runFileName } from '../lib/run-state.mjs';
 import { clean } from '../lib/sanitize.mjs';
 import { stateDir, runsDir as defaultRunsDir } from '../lib/config.mjs';
 
@@ -28,8 +28,7 @@ const ticketLine = (t) =>
   `- ${clean(t.id)} ${clean(t.title)} — ${clean(t.pr || t.branch) || '(no branch)'}`;
 
 // The run file the debrief recorded, else the default name: the UTC day the run started.
-const runFile = (run, runsDir) => run.debriefPath
-  || path.join(runsDir, `RUN_${new Date(run.startedAt * 1000).toISOString().slice(0, 10)}.md`);
+const runFile = (run, runsDir) => run.debriefPath || path.join(runsDir, runFileName(run));
 
 // Pure: all inputs (clock, state dir, runs dir) are injected. Returns markdown or null.
 export function report({ now, dir, runsDir = defaultRunsDir() }) {

@@ -8,12 +8,14 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { loadConfig, stateDir, runsDir, snapshotPath } from '../lib/config.mjs';
+import {
+  loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson,
+} from '../lib/config.mjs';
 import { readUsage, capStatus } from '../lib/usage.mjs';
 import { clean } from '../lib/sanitize.mjs';
 import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
-  TICKET_STATUSES,
+  writeJsonAtomic, isoDate, runFileName, TICKET_STATUSES,
 } from '../lib/run-state.mjs';
 
 const estimatesBlocked = (teams) =>
@@ -43,8 +45,6 @@ function now() {
   return Number(raw);
 }
 
-const isoDate = (t) => new Date(t * 1000).toISOString().slice(0, 10);
-
 function context() {
   const config = loadConfig();
   const t = now();
@@ -68,36 +68,22 @@ function activeRun() {
 }
 
 function readWindowFile() {
-  try {
-    const w = JSON.parse(readFileSync(path.join(stateDir(), WINDOW_FILE), 'utf8'));
-    return Number.isFinite(w?.resetsAt) ? w : null;
-  } catch {
-    return null;
-  }
+  const w = readJson(path.join(stateDir(), WINDOW_FILE));
+  return isNum(w?.resetsAt) ? w : null;
 }
 
 // The user-supplied reset, if any: the active run's, else the one stashed before `start`.
 function userReset() {
   const run = activeRun();
-  if (run?.window?.source === 'user' && Number.isFinite(run.window.resetsAt)) return run.window;
+  if (run?.window?.source === 'user' && isNum(run.window.resetsAt)) return run.window;
   return readWindowFile();
-}
-
-// Did the snapshot itself carry a 5h window that has already reset? readUsage folds that into
-// fiveHour:null, the same as "no 5h window at all", so the raw file decides.
-function snapshot5hReset(t) {
-  try {
-    const resets = JSON.parse(readFileSync(snapshotPath(), 'utf8'))?.rate_limits?.five_hour?.resets_at;
-    return Number.isFinite(resets) && resets <= t;
-  } catch {
-    return false;
-  }
 }
 
 function resolveWindow({ usage, cap, t }) {
   const user = userReset();
   const userFuture = user && user.resetsAt > t ? user : null;
-  const afterReset = !usage.fiveHour && (snapshot5hReset(t) || (user && user.resetsAt <= t));
+  // The snapshot's 5h window, or the user's reset time, has passed: a new window is open.
+  const afterReset = !usage.fiveHour && (usage.fiveHourReset || (user && user.resetsAt <= t));
   const open = usage.state === 'ok' && !cap.capped && Boolean(usage.fiveHour || afterReset);
   let window = null;
   const five = fresh5h(usage);
@@ -155,8 +141,7 @@ function setReset(raw) {
     saveRun(stateDir(), run);
     return { ...window, stored: 'run' };
   }
-  mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-  writeFileSync(path.join(stateDir(), WINDOW_FILE), `${JSON.stringify(window)}\n`);
+  writeJsonAtomic(stateDir(), WINDOW_FILE, window);
   return { ...window, stored: 'window' };
 }
 
@@ -424,10 +409,10 @@ function closeOut() {
 
 // RUN_<date>.md, or -2, -3 … when another run of the same day already wrote that file. The choice
 // is stored on the run so every later debrief of it rewrites the same file.
-function debriefPath(run, date) {
+function debriefPath(run) {
   if (run.debriefPath) return run.debriefPath;
   for (let n = 1; ; n += 1) {
-    const file = path.join(runsDir(), `RUN_${date}${n === 1 ? '' : `-${n}`}.md`);
+    const file = path.join(runsDir(), runFileName(run, n));
     if (!existsSync(file)) return file;
   }
 }
@@ -449,7 +434,7 @@ function trackerRow(tk) {
   else what = `${tk.status === 'capped' ? 'capped' : 'hand-off'}: ${clean(tk.reason) || 'no reason given'}`;
   if (tk.branch) what += ` · branch ${clean(tk.branch)}`;
   if (tk.acknowledged) what += ' · closed out';
-  const delta = Number.isFinite(tk.delta5h) ? `+${tk.delta5h}%` : 'n/a';
+  const delta = isNum(tk.delta5h) ? `+${tk.delta5h}%` : 'n/a';
   return `- ${box} **${clean(tk.id)}** ${clean(tk.title)} — ${what} · 5h ${delta}`;
 }
 
@@ -507,7 +492,7 @@ function debrief() {
     `- 7d usage: ${pctText(start.sevenDay)} at start, ${pctText(end.sevenDay)} at end`,
   ];
   mkdirSync(runsDir(), { recursive: true });
-  const file = debriefPath(run, date);
+  const file = debriefPath(run);
   writeFileSync(file, `${lines.join('\n')}\n`);
   if (run.debriefPath !== file) {
     run.debriefPath = file;

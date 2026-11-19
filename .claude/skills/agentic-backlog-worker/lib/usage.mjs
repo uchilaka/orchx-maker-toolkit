@@ -1,9 +1,6 @@
 // Reads the rate-limit snapshot written by scripts/statusline.sh and decides whether usage is
 // capped. All times are Unix seconds. Anything unreadable fails closed as 'missing'.
-import { readFileSync } from 'node:fs';
-import { DEFAULTS, snapshotPath } from './config.mjs';
-
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+import { DEFAULTS, snapshotPath, isNum, readJson } from './config.mjs';
 
 const MAX_FUTURE_SKEW_S = 120;
 const MISSING = Object.freeze({ state: 'missing', fiveHour: null, sevenDay: null, capturedAt: null });
@@ -25,12 +22,7 @@ export function readUsage({
   now = Date.now() / 1000,
   maxAgeMin = DEFAULTS.snapshot_max_age_min,
 } = {}) {
-  let snap;
-  try {
-    snap = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return { ...MISSING };
-  }
+  const snap = readJson(path);
   if (!snap || typeof snap !== 'object' || !isNum(snap.captured_at)) return { ...MISSING };
   // A capture time in the future (clock skew or corruption) would read fresh forever.
   if (snap.captured_at > now + MAX_FUTURE_SKEW_S) return { ...MISSING };
@@ -42,7 +34,11 @@ export function readUsage({
   const sevenDay = readWindow(limits.seven_day, now);
   if (fiveHour === undefined || sevenDay === undefined) return { ...MISSING };
   const stale = now - snap.captured_at > maxAgeMin * 60;
-  return { state: stale ? 'stale' : 'ok', fiveHour, sevenDay, capturedAt: snap.captured_at };
+  const usage = { state: stale ? 'stale' : 'ok', fiveHour, sevenDay, capturedAt: snap.captured_at };
+  // fiveHour null means either "no 5h window" or "it already reset"; the worker needs to tell
+  // those apart (a reset window is open), so the second case is flagged.
+  if (fiveHour === null && limits.five_hour != null) usage.fiveHourReset = true;
+  return usage;
 }
 
 // Caps are inclusive (>= cap is capped). Check order: missing, stale, 7d, 5h.
