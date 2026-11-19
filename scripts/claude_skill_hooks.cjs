@@ -142,7 +142,8 @@ function add(frag) {
     console.log(`  added ${w.event} hook: ${w.hook.command}`);
   }
   if (setStatusLine) {
-    settings.statusLine = sl;
+    // Merge, so a user's own extra fields (padding...) survive a re-point.
+    settings.statusLine = { ...settings.statusLine, ...sl };
     console.log(`  set statusLine: ${sl.command}`);
   }
   save(settings);
@@ -187,7 +188,10 @@ function main(argv) {
   } else if (action === 'has') {
     const settings = loadSettings();
     // A foreign statusLine is the user's to keep, so it doesn't make the skill "not installed".
-    const slDone = !frag.statusLine || settings.statusLine !== undefined;
+    // Ours under another spelling is not done: `add` must re-point it to the exact command.
+    const cur = settings.statusLine;
+    const slDone = !frag.statusLine || (cur !== undefined
+      && (cur?.command === frag.statusLine.command || !statusLineIsOurs(cur, frag.statusLine)));
     return slDone && frag.wanted.every((w) => present(settings, w)) ? 0 : 1;
   } else if (action === 'add') {
     add(frag);

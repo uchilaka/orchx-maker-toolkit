@@ -426,3 +426,24 @@ test('statusLine: remove leaves a foreign one', () => {
   assert.strictEqual(r.status, 0, r.stderr);
   assert.deepStrictEqual(readSettings(), { statusLine: mine, model: 'opus' });
 });
+
+// Hooks already installed, statusLine ours only under another spelling: install must
+// still re-point it (the exact command survives the skill link going away), keep the
+// user's extra fields, and a later uninstall must remove it.
+test('statusLine: re-points an aliased one when hooks are already present, keeps padding, uninstall removes it', () => {
+  makeDelta();
+  fs.mkdirSync(path.join(deltaSrc(), 'scripts'));
+  fs.writeFileSync(path.join(deltaSrc(), 'scripts', 'real.sh'), '#!/bin/sh\n');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), path.join(deltaSrc(), 'statusline.sh'));
+  const old = path.join(home, 'old-statusline.sh');
+  fs.symlinkSync(path.join(deltaSrc(), 'scripts', 'real.sh'), old);
+  assert.strictEqual(run('install', '--with-hooks', 'delta').status, 0);
+  writeSettings({ ...readSettings(), statusLine: { type: 'command', command: old, padding: 2 } });
+
+  const r = run('install', '--with-hooks', 'delta');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(readSettings().statusLine, { ...deltaStatusLine(), padding: 2 });
+
+  assert.strictEqual(run('uninstall', 'delta').status, 0);
+  assert.strictEqual(readSettings().statusLine, undefined);
+});
