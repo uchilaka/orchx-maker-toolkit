@@ -266,12 +266,14 @@ test('capped: commit and add flags are a closed set, matched exactly', () => {
   }
 });
 
-test('capped: push remote must be a remote name, and may not delete a branch', () => {
+test('capped: push remote is pinned to origin, and may not delete a branch', () => {
+  assert.strictEqual(capped(bash('git push origin LAR-1/a')), null);
   for (const command of [
     'git push .. LAR-1/a',
     'git push . LAR-1/a',
     'git push /tmp/repo LAR-1/a',
-    'git push 1origin LAR-1/a',
+    'git push upstream LAR-1/a',
+    'git push evilrepo LAR-1/a',
     'git push origin :LAR-2/other',
   ]) {
     assert.ok(capped(bash(command))?.deny, `should deny ${command}`);
@@ -282,35 +284,35 @@ test('capped: a hard link inside the state dir is denied', () => {
   assert.ok(capped(write(`${STATE}/hardlink`))?.deny);
 });
 
-test('capped: an unset or relative home denies a ~/ path, even into the state dir', () => {
-  // Point the state dir at a literal `undefined/` under cwd: the old expansion bug would land
-  // there and be allowed.
+test('capped: a relative home denies a ~/ path, even when it lands in the state dir', () => {
+  // The state dir is <cwd>/relative, so the old expansion (`relative/x`, resolved against the
+  // process cwd) would land inside it and be allowed.
   const saved = process.env.ABW_STATE_DIR;
+  const prevCwd = process.cwd();
   const cwd = mkdtempSync(path.join(tmp, 'cwd-'));
-  mkdirSync(path.join(cwd, 'undefined'));
-  process.env.ABW_STATE_DIR = path.join(cwd, 'undefined');
+  mkdirSync(path.join(cwd, 'relative'));
+  process.env.ABW_STATE_DIR = path.join(cwd, 'relative');
   try {
-    for (const home of [undefined, '', 'relative']) {
-      const prev = process.env.HOME;
-      if (home === undefined) delete process.env.HOME;
-      try {
-        const r = decide({ cwd, ...write('~/x') }, { usage: cappedUsage, config: cfg, home });
-        assert.ok(r?.deny, `home=${home}`);
-      } finally {
-        process.env.HOME = prev;
-      }
-    }
+    process.chdir(cwd);
+    const r = decide({ cwd, ...write('~/x') }, { usage: cappedUsage, config: cfg, home: 'relative' });
+    assert.ok(r?.deny);
   } finally {
+    process.chdir(prevCwd);
     process.env.ABW_STATE_DIR = saved;
   }
 });
 
 test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSON', () => {
-  for (const mode of ['throws', 'missing']) {
+  for (const mode of ['throws', 'missing', 'hangs']) {
     const dir = mkdtempSync(path.join(tmp, 'copy-'));
     mkdirSync(path.join(dir, 'scripts'));
     mkdirSync(path.join(dir, 'lib'));
     copyFileSync(GUARD, path.join(dir, 'scripts', 'usage-guard.mjs'));
+    if (mode === 'hangs') {
+      // An import that never settles ends node with exit 13 and no output (fail open).
+      writeFileSync(path.join(dir, 'lib', 'config.mjs'), 'await new Promise(() => {});\n');
+      writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');
+    }
     if (mode === 'throws') {
       writeFileSync(path.join(dir, 'lib', 'config.mjs'), "throw new Error('boom');\n");
       writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');

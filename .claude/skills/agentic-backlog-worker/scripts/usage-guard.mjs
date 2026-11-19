@@ -6,6 +6,56 @@ import { readFileSync, realpathSync, lstatSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// `settled` becomes true once the CLI has emitted a deny or reached its normal allow exit. The
+// exit backstop below treats anything else as a failure to decide and denies.
+let settled = false;
+// Synchronous so the JSON is out before any process.exit.
+const emit = (reason) => {
+  writeSync(
+    1,
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: reason,
+      },
+    }) + '\n',
+  );
+  settled = true;
+};
+
+
+// Direct run only (not on import by tests); realpath so a symlinked hook path still matches.
+// Any failure deciding whether we are the entry point is treated as direct, which denies.
+let direct = true;
+try {
+  const entry = process.argv[1] && realpathSync(process.argv[1]);
+  direct = Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
+} catch {
+  direct = true;
+}
+// Backstops are registered before the libs load: every other way out of this process (uncaught
+// exception, or an import that never settles, which node ends with exit 13 and no output) is
+// non-blocking to Claude Code, i.e. fail OPEN.
+const lastResort = (reason) => {
+  try {
+    emit(reason);
+    process.exitCode = 0;
+  } catch (err) {
+    process.stderr.write(`${reason} (could not write deny JSON: ${err?.message})\n`);
+    process.exitCode = 2;
+  }
+};
+if (direct) {
+  process.on('uncaughtException', (err) => {
+    lastResort(`Usage guard error (${err?.message}) — denying to stay safe.`);
+    process.exit();
+  });
+  process.on('exit', () => {
+    if (!settled) lastResort('Usage guard error (no decision reached) — denying to stay safe.');
+  });
+}
+
 // The libs load dynamically so a missing or broken lib cannot fail the import: an uncaught
 // import error exits 1 with no JSON, which Claude Code treats as non-blocking (fail OPEN).
 // Instead the error is kept and rethrown from decide()/main(), where it becomes a denial.
@@ -152,8 +202,9 @@ function pushAllowed(args) {
   // send the branch somewhere else.
   if (positional.length !== 2) return false;
   const [remote, refspec] = positional;
-  // Must look like a remote name: `.`/`..` would be a local-path remote.
-  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(remote)) return false;
+  // Pinned to `origin`: git treats an unconfigured bare word (or `..`) as a local path, which a
+  // capped agent could have planted.
+  if (remote !== 'origin') return false;
   if (refspec.startsWith('+')) return false;
   const colon = refspec.indexOf(':');
   // `:dst` (empty src) deletes the remote branch.
@@ -219,19 +270,6 @@ export function decide(hookInput, { usage, config, home = process.env.HOME } = {
 
 // --- CLI -------------------------------------------------------------------------------------
 
-// Synchronous so the JSON is out before any process.exit.
-const emit = (reason) =>
-  writeSync(
-    1,
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: reason,
-      },
-    }) + '\n',
-  );
-
 export function main() {
   try {
     const hookInput = JSON.parse(readFileSync(0, 'utf8'));
@@ -241,28 +279,10 @@ export function main() {
     const usage = readUsage({ maxAgeMin: config.snapshot_max_age_min });
     const result = decide(hookInput, { usage, config });
     if (result) emit(result.deny);
+    else settled = true;
   } catch (err) {
     emit(`Usage guard error (${err.message}) — denying to stay safe.`);
   }
 }
 
-// Direct run only (not on import by tests); realpath so a symlinked hook path still matches.
-// Any failure deciding whether we are the entry point runs main() anyway, which denies.
-let direct = true;
-try {
-  const entry = process.argv[1] && realpathSync(process.argv[1]);
-  direct = Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
-} catch {
-  direct = true;
-}
-if (direct) {
-  // Backstop: an uncaught exception would exit 1 with no JSON, which fails open.
-  process.on('uncaughtException', (err) => {
-    try {
-      emit(`Usage guard error (${err?.message}) — denying to stay safe.`);
-    } finally {
-      process.exit(0);
-    }
-  });
-  main();
-}
+if (direct) main();
