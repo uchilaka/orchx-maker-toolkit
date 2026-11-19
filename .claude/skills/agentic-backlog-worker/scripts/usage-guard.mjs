@@ -112,9 +112,10 @@ function resolveClosest(absPath) {
   }
 }
 
-// The state and runs dirs, each resolved by resolveClosest (null when unresolvable). Computed once
-// per process: a hook run makes one decision, and nothing it does moves these dirs. Each caller
-// applies its own null handling.
+// The state and runs dirs, in that order, each resolved by resolveClosest (null when
+// unresolvable). Both stay off-limits to `git -C`; only the runs dir holds writable files.
+// Computed once per process: a hook run makes one decision, and nothing it does moves these
+// dirs. Each caller applies its own null handling.
 let guardedBases = null;
 function guardBases() {
   if (!guardedBases) {
@@ -138,6 +139,13 @@ function absolutize(file, cwd, home) {
   return `${cwd}/${file}`;
 }
 
+// The only files a capped agent may write, relative to the resolved runs dir: its ticket plan and
+// its PR body. The state dir is not writable at all: run.json, history.json, window.json and
+// result-*.json are orchestrator state, and a forged run.json once let a capped write redirect
+// the debrief onto ~/.zshenv (live review SEC1). Matched on the resolved path, so `..` and
+// symlinks are already gone.
+const CHECKPOINT_FILE = /^tickets\/[A-Z]+-[0-9]+(-pr)?\.md$/;
+
 function writeAllowed(toolInput, cwd, home) {
   const file = toolInput?.file_path;
   if (typeof file !== 'string' || file === '' || file.includes('\0')) return false;
@@ -145,7 +153,7 @@ function writeAllowed(toolInput, cwd, home) {
   if (!abs) return false;
   const target = resolveClosest(abs);
   if (!target) return false;
-  // A hard link inside the state dir can point at a file outside it, and realpath can't see
+  // A hard link inside the runs dir can point at a file outside it, and realpath can't see
   // that. No legitimate checkpoint file is hard-linked, so any multi-link target is denied.
   try {
     const st = lstatSync(target);
@@ -153,7 +161,10 @@ function writeAllowed(toolInput, cwd, home) {
   } catch (err) {
     if (err.code !== 'ENOENT') return false;
   }
-  return guardBases().some((base) => base !== null && target.startsWith(base + path.sep));
+  const runs = guardBases()[1];
+  if (runs === null) return false;
+  const rel = path.relative(runs, target);
+  return CHECKPOINT_FILE.test(rel.split(path.sep).join('/'));
 }
 
 // --- Bash ------------------------------------------------------------------------------------
@@ -252,8 +263,8 @@ function addAllowed(args) {
 
 // `git -C <dir>` lets a capped agent reach its worktree: subagent Bash calls reset cwd between
 // calls, so a bare `git commit` would run in the launch checkout. Git executes config values
-// (core.fsmonitor, core.sshCommand, filters), and a capped agent can write files under the
-// state/runs dirs, so the directory must be a genuine linked worktree whose config lives in a
+// (core.fsmonitor, core.sshCommand, filters), and a capped agent can write ticket files under the
+// runs dir, so the directory must be a genuine linked worktree whose config lives in a
 // main repo the capped agent cannot write to. All of these must hold:
 //   (a) not inside the state or runs dirs;
 //   (b) named like a ticket id (LAR-123) directly under a `*-worktrees` dir that is not itself

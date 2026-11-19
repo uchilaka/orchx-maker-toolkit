@@ -17,7 +17,7 @@ import { readUsage, capStatus } from '../lib/usage.mjs';
 import { clean } from '../lib/sanitize.mjs';
 import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
-  writeJsonAtomic, isoDate, runFileName, TICKET_STATUSES,
+  writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES,
 } from '../lib/run-state.mjs';
 
 const estimatesBlocked = (teams) =>
@@ -450,7 +450,12 @@ function closeOut() {
 // RUN_<date>.md, or -2, -3 … when another run of the same day already wrote that file. The choice
 // is stored on the run so every later debrief of it rewrites the same file.
 function debriefPath(run) {
-  if (run.debriefPath) return run.debriefPath;
+  if (run.debriefPath !== undefined) {
+    // loadRun already vetted it; checked again because this path is about to be overwritten.
+    const problem = debriefPathProblem(run.debriefPath);
+    if (problem) fail(`stored debriefPath ${problem}`);
+    return run.debriefPath;
+  }
   for (let n = 1; ; n += 1) {
     const file = path.join(runsDir(), runFileName(run, n));
     if (!existsSync(file)) return file;

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync,
+} from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -506,16 +508,17 @@ test('unknown command and no run both exit 1 with JSON errors', () => {
 test('start: repo must be null (needs-repo or skipped) or a git repo under the repos root', () => {
   const box = sandbox();
   const bad = [
-    T('LAR-1', { repo: path.join(REPOS, 'not-a-repo') }), // no .git
-    T('LAR-1', { repo: tmpdir() }), // outside the root
-    T('LAR-1', { repo: path.join(REPO, '..', '..') }), // escapes via ..
-    T('LAR-1', { repo: null }), // queued needs a repo
-    T('LAR-1', { repo: 'relative/x' }),
+    [T('LAR-1', { repo: path.join(REPOS, 'not-a-repo') }), /not a git repo checkout/], // no .git
+    [T('LAR-1', { repo: tmpdir() }), /is not under/], // outside the root
+    [T('LAR-1', { repo: path.join(REPO, '..', '..') }), /is not under/], // escapes via ..
+    [T('LAR-1', { repo: null }), /repo must be an absolute path/], // queued needs a repo
+    [T('LAR-1', { repo: 'relative/x' }), /repo must be an absolute path/],
+    [T('LAR-1', { repo: path.join(REPOS, 'missing') }), /repo does not exist/],
   ];
-  for (const tk of bad) {
+  for (const [tk, message] of bad) {
     const r = box.run(['start', '--tickets', box.tickets([tk])]);
     assert.strictEqual(r.code, 1, String(tk.repo));
-    assert.match(r.json.error, /repo/);
+    assert.match(r.json.error, message, String(tk.repo));
   }
   const ok = [T('LAR-1'), T('LAR-2', { status: 'skipped', repo: null }), T('LAR-3', { status: 'needs-repo', repo: null })];
   assert.strictEqual(box.run(['start', '--tickets', box.tickets(ok)]).code, 0);
@@ -665,4 +668,46 @@ test('heartbeat: a stopped run is left untouched and reports skipped', () => {
   assert.strictEqual(r.code, 0);
   assert.deepStrictEqual(r.json, { skipped: 'inactive' });
   assert.strictEqual(readFileSync(path.join(box.env.ABW_STATE_DIR, 'run.json'), 'utf8'), before);
+});
+
+// --- live review SEC1 --------------------------------------------------------------------------
+
+test('debrief: a $(…) in an untrusted title does not survive into the file', () => {
+  const box = started([T('LAR-1', { title: 'Fix $(touch PWNED) and `id` now' })]);
+  box.run(['stop', '--reason', 'done $(id)']);
+  const r = box.run(['debrief']);
+  assert.strictEqual(r.code, 0, r.stdout);
+  const text = readFileSync(r.json.path, 'utf8');
+  assert.ok(text.includes('touch PWNED'), text);
+  assert.doesNotMatch(text, /\$|\(touch|\(id/);
+});
+
+test('debrief: a forged run.json pointing the debrief at ~/.zshenv writes nothing', () => {
+  const box = started([T('LAR-1')]);
+  box.run(['stop', '--reason', 'x']);
+  const zshenv = path.join(box.env.HOME, '.zshenv');
+  writeJson(path.join(box.env.ABW_STATE_DIR, 'run.json'), { ...box.runJson(), debriefPath: zshenv });
+  const r = box.run(['debrief']);
+  assert.strictEqual(r.code, 1, r.stdout);
+  assert.match(r.json.error, /"debriefPath" must be in the runs dir/);
+  assert.strictEqual(existsSync(zshenv), false);
+});
+
+// Live review TST2: every case below has a real .git directory, so only the under-the-root check
+// can reject it.
+test('start: a git repo outside the repos root is rejected, by prefix or by symlink', () => {
+  const sibling = path.join(`${REPOS}-evil`, 'bad');
+  mkdirSync(path.join(sibling, '.git'), { recursive: true });
+  const outside = path.join(tmpRoot('abw-outside-'), 'repo');
+  mkdirSync(path.join(outside, '.git'), { recursive: true });
+  const linkOut = path.join(REPOS, 'link-to-outside');
+  const linkSib = path.join(REPOS, 'link-to-sibling');
+  symlinkSync(outside, linkOut);
+  symlinkSync(sibling, linkSib);
+  const box = sandbox();
+  for (const repo of [sibling, linkOut, linkSib]) {
+    const r = box.run(['start', '--tickets', box.tickets([T('LAR-1', { repo })])]);
+    assert.strictEqual(r.code, 1, repo);
+    assert.match(r.json.error, /is not under/, repo);
+  }
 });

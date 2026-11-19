@@ -55,9 +55,9 @@ test('capped deny reason is the exact copy', () => {
 });
 
 test('capped: checkpoint operations are allowed', () => {
-  assert.strictEqual(capped(write(`${STATE}/run.json`)), null);
-  assert.strictEqual(capped(write(`${STATE}/new/dir/run.json`, 'Edit')), null);
-  assert.strictEqual(capped(write(`${RUNS}/LAR-1.md`, 'MultiEdit')), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1.md`)), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1-pr.md`, 'Edit')), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/LAR-1.md`, 'MultiEdit')), null);
   assert.strictEqual(capped(bash('git commit -m "wip"')), null);
   assert.strictEqual(capped(bash('git commit -m "wip checkpoint"')), null);
   assert.strictEqual(capped(bash('git add .')), null);
@@ -151,9 +151,46 @@ test('capped: paths cannot escape the state dirs', () => {
 });
 
 test('capped: relative paths resolve against the hook cwd', () => {
-  assert.strictEqual(capped({ cwd: STATE, ...write('run.json') }), null);
-  assert.ok(capped({ cwd: path.join(STATE, '..'), ...write('run.json') })?.deny);
-  assert.ok(capped({ cwd: undefined, ...write('run.json') })?.deny);
+  assert.strictEqual(capped({ cwd: path.join(RUNS, 'tickets'), ...write('LAR-1.md') }), null);
+  assert.ok(capped({ cwd: RUNS, ...write('LAR-1.md') })?.deny);
+  assert.ok(capped({ cwd: undefined, ...write('LAR-1.md') })?.deny);
+});
+
+// Live review SEC1: run.json, history.json and window.json are orchestrator state. A capped
+// agent that could write them could point debriefPath at ~/.zshenv, poison the cost history or
+// forge the window, so the only writable files are the ticket plan and its PR body.
+test('capped: only tickets/<ID>.md and tickets/<ID>-pr.md under the runs dir are writable', () => {
+  for (const file_path of [
+    `${STATE}/run.json`,
+    `${STATE}/history.json`,
+    `${STATE}/window.json`,
+    `${STATE}/result-LAR-1.json`,
+    `${STATE}/new/dir/run.json`,
+    `${RUNS}/RUN_2027-01-01.md`,
+    `${RUNS}/tickets/../x.md`,
+    `${RUNS}/tickets/lar-1.md`,
+    `${RUNS}/tickets/LAR-1.txt`,
+    `${RUNS}/tickets/LAR-1-pr-2.md`,
+    `${RUNS}/tickets/LAR-1/x.md`,
+    `${RUNS}/tickets/sub/LAR-1.md`,
+    `${RUNS}/tickets`,
+    `${RUNS}/LAR-1.md`,
+  ]) {
+    assert.ok(capped(write(file_path))?.deny, `should deny ${file_path}`);
+  }
+  for (const file_path of [`${RUNS}/tickets/LAR-1.md`, `${RUNS}/tickets/LAR-1-pr.md`]) {
+    assert.strictEqual(capped(write(file_path)), null, `should allow ${file_path}`);
+  }
+});
+
+test('capped: an existing tickets dir does not open a .. or symlink escape', () => {
+  const tickets = path.join(RUNS, 'tickets');
+  mkdirSync(tickets, { recursive: true });
+  symlinkSync(path.join(tmp, 'outside', 'secret'), path.join(tickets, 'LAR-8.md'));
+  for (const file_path of [`${tickets}/../x.md`, `${tickets}/../RUN_2027-01-01.md`, `${tickets}/LAR-8.md`]) {
+    assert.ok(capped(write(file_path))?.deny, `should deny ${file_path}`);
+  }
+  assert.strictEqual(capped(write(`${tickets}/LAR-1.md`)), null);
 });
 
 test('stale or missing usage denies with the reason', () => {
@@ -271,7 +308,11 @@ test('capped: push remote is pinned to origin, and may not delete a branch', () 
   }
 });
 
-test('capped: a hard link inside the state dir is denied', () => {
+test('capped: a hard-linked ticket plan is denied', () => {
+  const tickets = path.join(RUNS, 'tickets');
+  mkdirSync(tickets, { recursive: true });
+  linkSync(path.join(tmp, 'outside', 'secret'), path.join(tickets, 'LAR-7.md'));
+  assert.ok(capped(write(`${tickets}/LAR-7.md`))?.deny);
   assert.ok(capped(write(`${STATE}/hardlink`))?.deny);
 });
 
@@ -331,8 +372,9 @@ test('capped: git -C is allowed only for a real linked worktree named like a tic
   const denied = (dir, why) =>
     assert.ok(capped(bash(`git -C ${dir} commit -m wip`)), `should deny: ${why}`);
   // The C1 sequence: Write a .git/config under runs, create it, then try to use the directory.
+  // The write itself is now denied (SEC1); the directory is planted by hand to test -C anyway.
   const planted = path.join(RUNS, 'a-worktrees', 'LAR-2');
-  assert.strictEqual(capped(write(path.join(planted, '.git', 'config'))), null);
+  assert.ok(capped(write(path.join(planted, '.git', 'config')))?.deny);
   mkdirSync(path.join(planted, '.git'), { recursive: true });
   writeFileSync(path.join(planted, '.git', 'config'), '[core]\n');
   denied(planted, 'planted .git directory in runs');
@@ -398,6 +440,18 @@ test('hook command: a working guard exits 0 (proves the harness before the failu
   const r = runHookCommand({ PATH: process.env.PATH });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(r.stdout, '');
+});
+
+// Live review TST1: the uncapped run above would still pass if entry-point detection broke and
+// the guard silently allowed everything. These two must deny through the same symlinked layout.
+test('hook command: capped and missing-snapshot runs deny through the symlinked install', () => {
+  for (const [why, snapshot] of [['capped at 95%', snapshotFile(95)], ['missing', path.join(tmp, 'none.json')]]) {
+    const r = runHookCommand({ PATH: process.env.PATH, ABW_SNAPSHOT: snapshot });
+    assert.strictEqual(r.status, 0, `${why}: ${r.stderr}`);
+    let out;
+    assert.doesNotThrow(() => { out = JSON.parse(r.stdout); }, `${why}: ${r.stdout}`);
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny', why);
+  }
 });
 
 test('hook command: node missing from PATH exits 2 so the call is blocked', () => {

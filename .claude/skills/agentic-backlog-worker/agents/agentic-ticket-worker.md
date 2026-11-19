@@ -109,7 +109,8 @@ error only: worktree creation fails, or Linear or GitHub stays unreachable after
 ## When the usage cap is reached
 
 Below the cap, the guard does not interfere. Once capped, it allows only plan writes (Write or
-Edit inside `~/project-plans/agentic-backlog-worker/`), `git -C <worktree> add -A`,
+Edit of `~/project-plans/agentic-backlog-worker/tickets/<ID>.md` or `<ID>-pr.md`, nothing else
+under that dir or the state dir), `git -C <worktree> add -A`,
 `git -C <worktree> commit -m <plain words>`, `git -C <worktree> push origin <branch>`, and
 Linear `save_comment` and `save_issue`, with no shell metacharacters or quotes anywhere in the
 command. The guard (`scripts/usage-guard.mjs`) holds the exact grammar. You can only edit a file

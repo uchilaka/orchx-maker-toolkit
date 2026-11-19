@@ -27,8 +27,9 @@ const GROUPS = [
 const ticketLine = (t) =>
   `- ${clean(t.id)} ${clean(t.title)} — ${clean(t.pr || t.branch) || '(no branch)'}`;
 
-// The run file the debrief recorded, else the default name: the UTC day the run started.
-const runFile = (run, runsDir) => run.debriefPath || path.join(runsDir, runFileName(run));
+// The run file the debrief recorded, else the default name: the UTC day the run started. loadRun
+// has already vetted a stored path; it is still cleaned, since this text lands in the session.
+const runFile = (run, runsDir) => clean(run.debriefPath || path.join(runsDir, runFileName(run)));
 
 // Pure: all inputs (clock, state dir, runs dir) are injected. Returns markdown or null.
 export function report({ now, dir, runsDir = defaultRunsDir() }) {

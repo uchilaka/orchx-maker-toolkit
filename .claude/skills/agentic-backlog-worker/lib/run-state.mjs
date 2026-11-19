@@ -1,9 +1,11 @@
 // Run state, per-ticket cost history and the affordability check for /agentic-backlog-worker.
 // `run.json` and `history.json` live in a caller-supplied dir. Times are Unix seconds.
-import { readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from 'node:fs';
+import {
+  readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, lstatSync,
+} from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { DEFAULTS, readJson } from './config.mjs';
+import { DEFAULTS, readJson, runsDir } from './config.mjs';
 
 export const TICKET_STATUSES = Object.freeze(
   ['queued', 'running', 'pr', 'handoff', 'capped', 'skipped', 'needs-repo'],
@@ -16,6 +18,25 @@ export class RunStateError extends Error {
     super(message);
     this.name = 'RunStateError';
   }
+}
+
+const RUN_ID = /^run-\d{8}-\d{6}$/;
+const DEBRIEF_NAME = /^RUN_\d{4}-\d{2}-\d{2}(-\d+)?\.md$/;
+
+// Why a stored debrief path can't be trusted, or null when it can: it must be a RUN_<date>(-N).md
+// file directly in the runs dir, and not a symlink. The debrief overwrites this path, so a forged
+// one (e.g. ~/.zshenv) would be a write anywhere (live review SEC1). The message never echoes the
+// value: the SessionStart hook prints it into every session.
+export function debriefPathProblem(p) {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return 'must be an absolute path';
+  if (path.dirname(path.resolve(p)) !== path.resolve(runsDir())) return 'must be in the runs dir';
+  if (!DEBRIEF_NAME.test(path.basename(p))) return 'must be named RUN_<date>.md or RUN_<date>-N.md';
+  try {
+    if (lstatSync(p).isSymbolicLink()) return 'must not be a symlink';
+  } catch (err) {
+    if (err.code !== 'ENOENT') return 'cannot be checked';
+  }
+  return null;
 }
 
 const RUN_FILE = 'run.json';
@@ -57,6 +78,14 @@ export function loadRun(dir) {
     if (!(key in run)) throw new RunStateError(`${file} is missing "${key}"`);
   }
   if (!Array.isArray(run.tickets)) throw new RunStateError(`${file}: "tickets" must be an array`);
+  // The id is printed into the debrief and the status hook, so it must be the shape newRun makes.
+  if (typeof run.id !== 'string' || !RUN_ID.test(run.id)) {
+    throw new RunStateError(`${file}: "id" must look like run-YYYYMMDD-HHMMSS`);
+  }
+  if (run.debriefPath !== undefined) {
+    const problem = debriefPathProblem(run.debriefPath);
+    if (problem) throw new RunStateError(`${file}: "debriefPath" ${problem}`);
+  }
   return run;
 }
 
