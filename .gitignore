@@ -28,6 +28,7 @@ coverage/
 !.claude/skills/openv
 !.claude/skills/pr-triage
 !.claude/skills/pick-model
+!.claude/skills/hand-off
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is

@@ -3,8 +3,9 @@ node = "24.17.0"
 direnv = "2.37.1"
 
 [tasks.bundle]
-description = "Install Homebrew dependencies from Brewfile"
-run = "brew bundle"
+description = "Install Homebrew dependencies from Brewfile (dev-only casks when MISE_ENV=development)"
+# Homebrew only passes HOMEBREW_* variables through to the Brewfile; see its comment.
+run = "HOMEBREW_MISE_ENV=\"${MISE_ENV:-}\" brew bundle"
 
 [tasks."install:extensions"]
 description = "Install the Gemini CLI ralph extension"

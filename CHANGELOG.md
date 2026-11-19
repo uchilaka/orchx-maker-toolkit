@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **`pick-model`:** picks the model to keep for a whole session in Claude Code or OpenCode, balancing cost against how hard the work is. Its estimator (`scripts/session-cost.mjs`) prices a session from live OpenRouter rates and, with `OPENROUTER_API_KEY` set, shortlists only the models that key's guardrails allow. Recommends only; never switches.
+- **`hand-off`:** generates a directional, copy-pasteable hand-off prompt between harnesses (`opencode -> claude-code`, `claude-code -> opencode`, `* -> gemini`, or same-harness reset), gathering live git/worktree/PR state, plan progress, machine side effects, and harness-specific gaps (hooks, subagents, policies, secrets).
 - **`browse` in the plugin:** `/browse` now ships in `orchx-maker`, and a new `hot-reload-preview` plugin adds its session-start autostart hook. The skill sets the folder the hook serves (`browse-ctl.mjs autostart`).
 
 ### Security
 - **`browse`:** raw HTML in rendered markdown shows as text, and links keep only `http`, `https`, `mailto` and relative targets. Requests with a foreign `Host` header get a 403, against DNS rebinding.
+
+### Fixed
+- **`Brewfile` dev-only casks:** `antigravity-cli` and `open-codesign` now install when `MISE_ENV=development`. The old `RAILS_ENV` gate never fired, because Homebrew only passes `HOMEBREW_*` variables into a `Brewfile`; `mise run bundle` now passes `MISE_ENV` in as `HOMEBREW_MISE_ENV`.
 
 ## [0.7.0-alpha] - 2026-04-27
 
