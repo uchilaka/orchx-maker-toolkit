@@ -121,3 +121,45 @@ test('path defaults to snapshotPath() read at call time', () => {
     if (saved === undefined) delete process.env.ABW_SNAPSHOT; else process.env.ABW_SNAPSHOT = saved;
   }
 });
+
+test('a malformed window (used_percentage "x") is missing', () => {
+  const p = snap({
+    captured_at: NOW - 60,
+    rate_limits: { five_hour: { used_percentage: 'x', resets_at: NOW + 60 } },
+  });
+  assert.strictEqual(read(p).state, 'missing');
+});
+
+test('7d boundary: 75 is capped, 74 is not', () => {
+  assert.strictEqual(capStatus(read(reading({ seven: 75 })), cfg).capped, true);
+  assert.strictEqual(capStatus(read(reading({ seven: 74 })), cfg).capped, false);
+});
+
+test('stale takes precedence over a 90% reading', () => {
+  const s = capStatus(read(reading({ five: 90, age: 16 * 60 })), cfg);
+  assert.strictEqual(s.capped, true);
+  assert.match(s.reason, /stale/);
+});
+
+test('a non-object rate_limits is missing (fails closed)', () => {
+  for (const bad of ['oops', 5, [1]]) {
+    const p = snap({ captured_at: NOW - 60, rate_limits: bad });
+    assert.strictEqual(read(p).state, 'missing', JSON.stringify(bad));
+  }
+});
+
+test('a captured_at in the future is missing, small skew is ok', () => {
+  assert.strictEqual(read(reading({ five: 1, age: -121 })).state, 'missing');
+  assert.strictEqual(read(reading({ five: 1, age: -120 })).state, 'ok');
+  assert.strictEqual(read(snap({ captured_at: '123', rate_limits: {} })).state, 'missing');
+});
+
+test('capStatus fails closed on an unknown state and on invalid cap config', () => {
+  const ok = read(reading({ five: 1 }));
+  const s = capStatus({ ...ok, state: 'bogus' }, cfg);
+  assert.deepStrictEqual(s, { capped: true, reason: 'unknown usage state' });
+  for (const bad of [{ usage_cap_5h: undefined }, { usage_cap_7d: 'x' }]) {
+    assert.deepStrictEqual(capStatus(ok, { ...cfg, ...bad }),
+      { capped: true, reason: 'invalid cap config' });
+  }
+});

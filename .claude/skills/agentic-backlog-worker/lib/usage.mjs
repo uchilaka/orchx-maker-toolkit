@@ -5,6 +5,7 @@ import { DEFAULTS, snapshotPath } from './config.mjs';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
+const MAX_FUTURE_SKEW_S = 120;
 const MISSING = Object.freeze({ state: 'missing', fiveHour: null, sevenDay: null, capturedAt: null });
 
 // Absent or already-reset window -> null: after the reset the old percentage no longer applies
@@ -31,7 +32,10 @@ export function readUsage({
     return { ...MISSING };
   }
   if (!snap || typeof snap !== 'object' || !isNum(snap.captured_at)) return { ...MISSING };
+  // A capture time in the future (clock skew or corruption) would read fresh forever.
+  if (snap.captured_at > now + MAX_FUTURE_SKEW_S) return { ...MISSING };
   const limits = snap.rate_limits ?? {};
+  if (typeof limits !== 'object' || Array.isArray(limits)) return { ...MISSING };
   const fiveHour = readWindow(limits.five_hour, now);
   const sevenDay = readWindow(limits.seven_day, now);
   if (fiveHour === undefined || sevenDay === undefined) return { ...MISSING };
@@ -43,6 +47,11 @@ export function readUsage({
 export function capStatus(usage, config) {
   if (usage.state === 'missing') return { capped: true, reason: 'no usage reading' };
   if (usage.state === 'stale') return { capped: true, reason: 'usage reading is stale' };
+  // Fail closed: only an explicit 'ok' state with valid caps can be uncapped.
+  if (usage.state !== 'ok') return { capped: true, reason: 'unknown usage state' };
+  if (!isNum(config.usage_cap_5h) || !isNum(config.usage_cap_7d)) {
+    return { capped: true, reason: 'invalid cap config' };
+  }
   if (usage.sevenDay && usage.sevenDay.pct >= config.usage_cap_7d) {
     return { capped: true, reason: `7d ${usage.sevenDay.pct}% ≥ cap ${config.usage_cap_7d}%` };
   }
