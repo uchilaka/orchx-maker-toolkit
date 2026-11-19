@@ -25,6 +25,7 @@ coverage/
 !.claude/skills/llm-wikify
 !.claude/skills/browse
 !.claude/skills/check-mermaid-artifact
+!.claude/skills/openv
 !.claude/skills/pr-triage
 !.claude/skills/pick-model
 !.claude/skills/hand-off
