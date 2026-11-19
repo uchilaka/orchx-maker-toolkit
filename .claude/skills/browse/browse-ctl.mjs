@@ -151,9 +151,9 @@ async function liveEntries() {
       removeEntry(port, e.pid);
       continue;
     }
-    // code is what the server reports, never what the entry says: undefined for
-    // a server that predates the fingerprint, which counts as older code too.
-    live.push({ ...e, code: h.code });
+    // What the server itself reports, not a registry field: undefined for a
+    // server that predates the fingerprint, which counts as older code too.
+    live.push({ ...e, runningCode: h.code });
   }
   return live.sort((a, b) => a.port - b.port);
 }
@@ -344,6 +344,8 @@ async function ensure(opts) {
   const dir = isDir ? target : dirname(target);
   const owner = opts.shared ? "shared" : ownerFromEnv();
   const display = displayHost();
+  // Hashed once: the code on disk now, which every covering server is compared to.
+  const currentCode = codeVersion();
   // Built from the port, never from the entry's url field.
   const link = (port, path) => `http://${display}:${port}${urlSuffix(relative(path, target), isDir)}`;
 
@@ -352,26 +354,32 @@ async function ensure(opts) {
     const covering = (await liveEntries())
       .filter((e) => (e.owner === "shared" || e.owner === owner) && (dir === e.path || dir.startsWith(e.path + sep)))
       .sort((a, b) => b.path.length - a.path.length)[0];
-    if (covering) {
-      // Reusing a server on older code would serve the old renderer
-      // indefinitely, so restart it in place: same port (open tabs reconnect
-      // and reload), same path and owner. No new tab, since one is open.
-      if (covering.code !== codeVersion()) {
-        if (!(await terminate(covering))) {
-          console.error(`browse: ${covering.port} (pid ${covering.pid}) runs older code and did not exit; reusing it`);
-        } else if (await start(covering.path, covering.port, covering.owner, display)) {
-          console.log(`${link(covering.port, covering.path)} (restarted: code changed)`);
-          return;
-        } else {
-          // Something took the port in between; fall through to a fresh start.
-          return startOnFreePort();
-        }
-      }
+    if (!covering) return startOnFreePort();
+    // TODO(LAR-475): only restart for *older* code; two installed copies with
+    // different code would otherwise restart each other's server every time.
+    if (covering.runningCode === currentCode) {
       console.log(`${link(covering.port, covering.path)} (already running)`);
       return;
     }
-    return startOnFreePort();
+    const outcome = await restartInPlace(covering);
+    if (outcome === "restarted") console.log(`${link(covering.port, covering.path)} (restarted: code changed)`);
+    else if (outcome === "stuck") console.log(`${link(covering.port, covering.path)} (already running)`);
+    else return startOnFreePort();
   });
+
+  // Reusing a server on older code would serve the old renderer indefinitely,
+  // so restart it in place: same port (open tabs reconnect and reload), same
+  // path and owner. No new tab, since one is open. Returns "restarted",
+  // "stuck" (it didn't exit, so it's reused) or "port-lost" (it exited, but
+  // something took the port before the new server could bind it).
+  async function restartInPlace(e) {
+    if (!(await terminate(e))) {
+      // TODO(LAR-476): remember this, so every later ensure doesn't wait 3s again.
+      console.error(`browse: ${e.port} (pid ${e.pid}) runs older code and did not exit; reusing it`);
+      return "stuck";
+    }
+    return (await start(e.path, e.port, e.owner, display)) ? "restarted" : "port-lost";
+  }
 
   async function startOnFreePort() {
     const min = Number(process.env.BROWSE_PORT_MIN || 3200);
@@ -423,11 +431,14 @@ function age(iso) {
 // it's gone. Returns false, keeping the entry, if it's still running.
 async function terminate(e) {
   // Checked again: the verification in liveEntries can be seconds old, and
-  // another stop may already have ended this server.
+  // another stop or ensure may already have ended this server.
   if (isBrowseServer(e.pid)) {
     try {
       process.kill(e.pid, "SIGTERM");
     } catch (err) {
+      // EPERM: it belongs to another user. Report it as not stopped, so the
+      // caller keeps the entry (stop) or reuses the server (ensure).
+      if (err.code === "EPERM") return false;
       if (err.code !== "ESRCH") throw err;
     }
     for (let i = 0; i < 30 && alive(e.pid); i++) await sleep(100);

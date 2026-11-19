@@ -327,7 +327,28 @@ describe("browse-ctl.mjs", { timeout: 60_000 }, () => {
       assert.equal(await health(port), tree.plans);
       assert.deepEqual(openCalls(), []);
       // The new server runs the current code, so the next ensure reuses it.
-      assert.match((await ctlAsync(["ensure", tree.plans])).stdout, /\(already running\)/);
+      const again = await ctlAsync(["ensure", tree.plans]);
+      assert.match(again.stdout, /\(already running\)/);
+      assert.doesNotMatch(again.stdout, /restarted/);
+      assert.equal(entryAt(port).pid, e.pid);
+    });
+
+    // A server from before the fingerprint reports no code at all, which must
+    // count as older, not as "can't tell, so reuse".
+    test("one that reports no fingerprint is restarted too", async () => {
+      const dir = join(tree.root, "prefingerprint");
+      mkdirSync(dir);
+      const s = await stub(dir, "serve-md.mjs", base, tree.plans);
+      spawned.push(s);
+      writeFileSync(join(state, `${base}.json`), JSON.stringify({
+        pid: s.pid, port: base, path: tree.plans, url: `http://localhost:${base}`, owner: "sess-a",
+        started: new Date().toISOString(),
+      }));
+      const r = await ctlAsync(["ensure", tree.plans]);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout.trim(), `http://localhost:${base} (restarted: code changed)`);
+      assert.ok(!alive(s.pid), "the old server is still running");
+      assert.notEqual(entryAt(base).pid, s.pid);
     });
 
     test("one that won't stop is reused, with a warning, rather than failing", async () => {

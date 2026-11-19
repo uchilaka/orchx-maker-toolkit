@@ -54,6 +54,8 @@ export function removeEntry(port, pid) {
 // this folder. A running server reports the one it started with in /__health,
 // and browse-ctl.mjs restarts a server whose fingerprint no longer matches the
 // files on disk, since node never reloads a module it has already loaded.
+// The list must name every local file serve-md.mjs imports or reads: one left
+// out can change without the server ever being restarted.
 export function codeVersion() {
   const dir = dirname(fileURLToPath(import.meta.url));
   const hash = createHash("sha256");

@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **`browse`:** raw HTML in rendered markdown shows as text, and links keep only `http`, `https`, `mailto` and relative targets. Requests with a foreign `Host` header get a 403, against DNS rebinding.
 
+### Fixed
+- **`browse` restarts a server on old code:** `ensure` now restarts a server still running code from before an update, on the same port, and open tabs reload when they reconnect. Tabs opened before this release don't have the reload script, so reload them by hand once.
+
 ## [0.7.0-alpha] - 2026-04-27
 
 ### Added
