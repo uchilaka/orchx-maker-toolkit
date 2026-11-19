@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`/release`** commits the release on a `release/vX.Y.Z` branch and merges it through a PR, since `main` only accepts changes through one. The tag is pushed last, on the release commit, after the merge.
+
 ## [0.8.0-alpha] - 2026-11-19
 
 ### Added
