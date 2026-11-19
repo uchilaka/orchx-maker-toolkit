@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -12,8 +12,22 @@ const tmpHome = () => mkdtempSync(path.join(tmpdir(), 'abw-statusline-'));
 const stateDir = (home) => path.join(home, '.claude', 'state', 'statusline');
 const stateFile = (home) => path.join(stateDir(home), 'rate-limits.json');
 const payload = (rate_limits) => JSON.stringify({ model: { display_name: 'O' }, rate_limits });
-const run = (home, rate_limits) =>
-  spawnSync('bash', [SCRIPT], { input: payload(rate_limits), encoding: 'utf8', env: { ...process.env, HOME: home } });
+// The snapshot is written by a detached subshell; ABW_STATUSLINE_FOREGROUND runs it inline so
+// sequential assertions are deterministic. Tests of the detached path pass sync = false.
+const run = (home, rate_limits, sync = true) =>
+  spawnSync('bash', [SCRIPT], {
+    input: payload(rate_limits),
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, ...(sync ? { ABW_STATUSLINE_FOREGROUND: '1' } : {}) },
+  });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const leftovers = (home) => readdirSync(stateDir(home)).filter((f) => f !== 'rate-limits.json');
+const settle = async (home, done) => {
+  for (let i = 0; i < 200; i++) {
+    if (done() && leftovers(home).length === 0) return;
+    await sleep(50);
+  }
+};
 const saved = (home) => JSON.parse(readFileSync(stateFile(home), 'utf8')).rate_limits;
 const w = (used_percentage, resets_at) => ({ used_percentage, resets_at });
 
@@ -58,6 +72,54 @@ test('20 parallel writers: valid JSON, max reading wins, no temp files left', as
     c.on('close', resolve);
     c.stdin.end(payload({ five_hour: w(p, 500) }));
   })));
-  assert.strictEqual(saved(home).five_hour.used_percentage, Math.max(...readings));
+  const max = Math.max(...readings);
+  const reached = () => existsSync(stateFile(home)) && saved(home).five_hour.used_percentage === max;
+  await settle(home, reached);
+  assert.strictEqual(saved(home).five_hour.used_percentage, max);
   assert.deepStrictEqual(readdirSync(stateDir(home)), ['rate-limits.json']);
+});
+
+const lockDir = (home) => `${stateFile(home)}.lock`;
+const withLock = (home, ageSec) => {
+  mkdirSync(stateDir(home), { recursive: true });
+  mkdirSync(lockDir(home));
+  const t = new Date(Date.now() - ageSec * 1000);
+  utimesSync(lockDir(home), t, t);
+};
+
+test('render is not blocked by a fresh lock (returns within 500ms)', () => {
+  const home = tmpHome();
+  withLock(home, 0);
+  const t0 = Date.now();
+  const r = run(home, { five_hour: w(19, 4_000_000_000) }, false);
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0}ms`);
+  assert.ok(r.stdout.includes('19%'));
+});
+
+test('a lock whose mtime is 60s old is broken and the write lands', async () => {
+  const home = tmpHome();
+  withLock(home, 60);
+  run(home, { five_hour: w(19, 500) }, false);
+  await settle(home, () => existsSync(stateFile(home)));
+  assert.strictEqual(saved(home).five_hour.used_percentage, 19);
+  assert.ok(!existsSync(lockDir(home)));
+});
+
+test('a fresh foreign lock is left in place and the write is skipped', async () => {
+  const home = tmpHome();
+  withLock(home, 0);
+  run(home, { five_hour: w(19, 500) }, false);
+  await sleep(4000); // longer than the ~3s wait
+  assert.ok(existsSync(lockDir(home)), 'foreign lock must survive');
+  assert.ok(!existsSync(stateFile(home)), 'write must be skipped');
+  assert.deepStrictEqual(leftovers(home), ['rate-limits.json.lock']);
+});
+
+test('a corrupt state file self-heals', () => {
+  const home = tmpHome();
+  mkdirSync(stateDir(home), { recursive: true });
+  writeFileSync(stateFile(home), '{not json');
+  run(home, { five_hour: w(19, 500) });
+  assert.deepStrictEqual(saved(home), { five_hour: w(19, 500) });
+  assert.deepStrictEqual(leftovers(home), []);
 });
