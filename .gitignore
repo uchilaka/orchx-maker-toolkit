@@ -28,6 +28,7 @@ coverage/
 !.claude/skills/openv
 !.claude/skills/pr-triage
 !.claude/skills/pick-model
+!.claude/skills/agentic-backlog-worker
 !.claude/skills/hand-off
 
 # Local configuration files (dotenv)
