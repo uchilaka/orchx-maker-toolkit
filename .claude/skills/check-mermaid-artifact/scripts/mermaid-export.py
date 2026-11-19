@@ -24,9 +24,6 @@ platform-specific converter (macOS `sips`) for a worse image. The background is 
 white so dark text stays readable in a destination's dark mode.
 """
 
-# TODO(LAR-464): ~/.claude/scripts/mermaid-export.py is a hand copy of this file, and
-# ~/CLAUDE.md points agents at it. It doesn't get fixes made here.
-
 import argparse
 import json
 import os

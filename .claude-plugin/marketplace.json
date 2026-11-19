@@ -12,7 +12,9 @@
         "./.claude/skills/patch-my-hosts",
         "./.claude/skills/llm-wikify",
         "./.claude/skills/browser-test-assist",
-        "./.claude/skills/browse"
+        "./.claude/skills/browse",
+        "./.claude/skills/pick-model",
+        "./.claude/skills/hand-off"
       ]
     },
     {
@@ -37,6 +39,12 @@
           }
         ]
       }
+    },
+    {
+      "name": "openv",
+      "source": "./",
+      "description": "Loads Proton Pass secrets into a command's environment on demand, keeping values out of Claude sessions",
+      "skills": ["./.claude/skills/openv"]
     }
   ]
 }
