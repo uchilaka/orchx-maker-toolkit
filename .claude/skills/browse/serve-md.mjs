@@ -51,16 +51,52 @@ function mermaidBlock(code) {
   return `<div class="not-prose my-6 overflow-x-auto rounded-xl p-4 ring-1 ring-zinc-900/10 dark:ring-white/10"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>`;
 }
 
-// Pinned like the Tailwind CDN. Loaded only on pages with a diagram, themed from the
-// `dark` class the theme script sets before first paint. Live reload is a full page
-// load, so diagrams redraw on every save; a theme toggle redraws on the next load.
+// Pinned like the Tailwind CDN. Loaded only on pages with a diagram. Live reload is a
+// full page load, so diagrams redraw on every save; a theme switch redraws them in
+// place (see browseMermaid below).
 const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
 
+// The rendering logic is a plain inline script, not part of the module, so the tests
+// can run it in a stub DOM; a module importing from a CDN can't run there. The module
+// only imports mermaid and hands it over.
 function mermaidScript(main) {
   if (!main.includes('<pre class="mermaid">')) return "";
-  return `<script type="module">
+  return `<script data-browse-mermaid>
+// Renders every diagram, then redraws them whenever the page theme flips. The theme
+// script only toggles <html class="dark">, so watching that one attribute covers the
+// header switch and an OS change under System alike. Mermaid overwrites each <pre>
+// with its SVG, so the fence source is stashed first and restored before a redraw.
+// Redraws run one at a time: mermaid.run is async, and two at once on the same nodes
+// would race. Each finished render fires browse:mermaid-rendered, for anything that
+// shows its own copy of a diagram (the full-screen preview).
+window.browseMermaid = function (mermaid) {
+  var root = document.documentElement;
+  var nodes = [].slice.call(document.querySelectorAll("pre.mermaid"));
+  nodes.forEach(function (n) { n.dataset.mermaidSource = n.textContent; });
+  var drawn = null;
+  var queue = Promise.resolve();
+  function draw() {
+    var theme = root.classList.contains("dark") ? "dark" : "default";
+    if (theme === drawn) return;
+    drawn = theme;
+    mermaid.initialize({ startOnLoad: false, theme: theme });
+    nodes.forEach(function (n) {
+      n.removeAttribute("data-processed");
+      n.textContent = n.dataset.mermaidSource;
+    });
+    return mermaid.run({ nodes: nodes }).then(function () {
+      window.dispatchEvent(new CustomEvent("browse:mermaid-rendered"));
+    });
+  }
+  // draw runs after a failed render too, so one bad diagram doesn't stop later redraws.
+  function schedule() { queue = queue.then(draw, draw); return queue; }
+  new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ["class"] });
+  return schedule();
+};
+</script>
+<script type="module">
 import mermaid from "${MERMAID_URL}";
-mermaid.initialize({ startOnLoad: true, theme: document.documentElement.classList.contains("dark") ? "dark" : "default" });
+window.browseMermaid(mermaid);
 </script>
 `;
 }

@@ -238,3 +238,118 @@ describe("theme script", () => {
     assert.doesNotThrow(() => t.window.browseTheme("light"));
   });
 });
+
+// The diagram script runs in a stub DOM with a fake mermaid that, like the real one,
+// overwrites each <pre>'s text with the rendered SVG. A redraw that skipped restoring
+// the source would hand mermaid that SVG; the assertions on `sawSource` catch it.
+describe("mermaid theme script", () => {
+  const SOURCES = ["flowchart LR\n  A --> B", "flowchart TD\n  C --> D"];
+  const diagramPage = htmlPage("T", renderMarkdown(SOURCES.map((s) => "```mermaid\n" + s + "\n```").join("\n\n")).html);
+  const script = diagramPage.match(/<script data-browse-mermaid>([\s\S]*?)<\/script>/);
+
+  function boot({ dark }) {
+    const classes = new Set(dark ? ["dark"] : []);
+    let observed;
+    const nodes = SOURCES.map((s) => ({
+      textContent: s,
+      dataset: {},
+      attrs: {},
+      removeAttribute(name) { delete this.attrs[name]; },
+    }));
+    const runs = [];
+    let theme;
+    const mermaid = {
+      initialize: (cfg) => { theme = cfg.theme; },
+      run: ({ nodes: sandboxNodes }) => {
+        // The script builds this array inside the vm, so its prototype isn't this
+        // realm's Array; copying keeps deepStrictEqual comparing values only.
+        const ns = [...sandboxNodes];
+        runs.push({
+          theme,
+          sawSource: ns.map((n) => n.textContent),
+          processedCleared: ns.every((n) => !("data-processed" in n.attrs)),
+        });
+        ns.forEach((n) => { n.textContent = "<svg>rendered</svg>"; n.attrs["data-processed"] = "true"; });
+        return Promise.resolve();
+      },
+    };
+    const events = [];
+    const window = { dispatchEvent: (e) => events.push(e.type) };
+    const document = {
+      documentElement: { classList: { contains: (c) => classes.has(c) } },
+      querySelectorAll: (sel) => (sel === "pre.mermaid" ? nodes : []),
+    };
+    class MutationObserver {
+      constructor(cb) { this.cb = cb; }
+      observe(target, opts) { observed = { target, opts, cb: this.cb }; }
+    }
+    class CustomEvent { constructor(type) { this.type = type; } }
+    vm.runInNewContext(script[1], { window, document, MutationObserver, CustomEvent });
+    return {
+      runs,
+      events,
+      observed: () => observed,
+      start: () => window.browseMermaid(mermaid),
+      async setDark(on) {
+        on ? classes.add("dark") : classes.delete("dark");
+        observed.cb([]);
+        await new Promise((r) => setTimeout(r, 0));
+      },
+    };
+  }
+
+  test("pages with a diagram carry the theme script; others don't", () => {
+    assert.ok(script, "diagram page has <script data-browse-mermaid>");
+    assert.doesNotMatch(htmlPage("T", "<p>x</p>"), /data-browse-mermaid/);
+  });
+
+  test("the module script hands the pinned mermaid to browseMermaid instead of auto-rendering", () => {
+    assert.match(diagramPage, /import mermaid from "https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/[^"]+";\s*window\.browseMermaid\(mermaid\);/);
+    assert.doesNotMatch(diagramPage, /startOnLoad: true/);
+  });
+
+  for (const dark of [false, true]) {
+    test(`first render uses the page theme (${dark ? "dark" : "light"})`, async () => {
+      const t = boot({ dark });
+      await t.start();
+      assert.equal(t.runs.length, 1);
+      assert.equal(t.runs[0].theme, dark ? "dark" : "default");
+      assert.deepEqual(t.runs[0].sawSource, SOURCES);
+    });
+  }
+
+  test("watches only <html>'s class attribute", async () => {
+    const t = boot({ dark: false });
+    await t.start();
+    const { opts } = t.observed();
+    assert.equal(opts.attributes, true);
+    assert.deepEqual([...opts.attributeFilter], ["class"]);
+  });
+
+  test("each theme flip redraws from the original source, not the previous SVG", async () => {
+    const t = boot({ dark: false });
+    await t.start();
+    await t.setDark(true);
+    await t.setDark(false);
+    await t.setDark(true);
+    assert.deepEqual(t.runs.map((r) => r.theme), ["default", "dark", "default", "dark"]);
+    for (const r of t.runs) {
+      assert.deepEqual(r.sawSource, SOURCES);
+      assert.ok(r.processedCleared, "data-processed cleared so mermaid renders the node again");
+    }
+  });
+
+  test("a class change that keeps the theme doesn't redraw", async () => {
+    const t = boot({ dark: true });
+    await t.start();
+    await t.setDark(true);
+    assert.equal(t.runs.length, 1);
+  });
+
+  test("every render announces browse:mermaid-rendered, for the full-screen preview to follow", async () => {
+    const t = boot({ dark: false });
+    await t.start();
+    await t.setDark(true);
+    assert.deepEqual(t.events, ["browse:mermaid-rendered", "browse:mermaid-rendered"]);
+  });
+});
