@@ -36,6 +36,9 @@ jobs:
       # Install scripts stay on: the package fetches its native binary in one.
       - name: Install Claude Code CLI (pinned)
         run: npm install -g @anthropic-ai/claude-code@2.1.296
+      # zsh: openv's export test checks `eval "$(openv export …)"` in zsh and bash,
+      # and under CI it fails rather than skips without it.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
       - run: mise run test:claude
       - run: mise run build:claude
 

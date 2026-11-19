@@ -167,10 +167,24 @@ test('openv export is refused under CLAUDECODE or OPENCODE_SESSION_ID even with 
   assert.deepStrictEqual(s.passCalls(), []);
 });
 
-test('eval "$(openv export dev)" works in both zsh and bash, including quotes, $ and newlines', () => {
-  const s = sandbox();
-  s.write('global/dev.env', 'SECRET=pass://V/i/f\nWEIRD=pass://V/i/w\nPLAIN=hello\n');
-  for (const sh of ['/bin/zsh', '/bin/bash']) {
+// Resolves a shell from PATH rather than assuming /bin (Ubuntu runners have no zsh
+// unless test.yml installs it). Locally a missing shell skips its case; under CI it
+// fails instead, like publish_prep's gitleaks tests, so coverage can't silently drop.
+const findShell = (name) => {
+  const r = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+};
+
+test('eval "$(openv export dev)" works in both zsh and bash, including quotes, $ and newlines', async (t) => {
+  for (const name of ['zsh', 'bash']) await t.test(name, (st) => {
+    const sh = findShell(name);
+    if (!sh) {
+      assert.ok(!process.env.CI, `${name} is not installed; CI must install it (see .github/workflows/test.yml)`);
+      st.skip(`${name} is not installed`);
+      return;
+    }
+    const s = sandbox();
+    s.write('global/dev.env', 'SECRET=pass://V/i/f\nWEIRD=pass://V/i/w\nPLAIN=hello\n');
     const cmd = `eval "$(/bin/bash ${SCRIPT} export dev)"; python3 -c "import os; print(repr((os.environ['SECRET'], os.environ['WEIRD'], os.environ['PLAIN'])))"`;
     const r = s.runPty(sh, cmd);
     assert.strictEqual(r.status, 0, `${sh}: ${r.stdout}`);
@@ -181,7 +195,7 @@ test('eval "$(openv export dev)" works in both zsh and bash, including quotes, $
     assert.strictEqual(r2.status, 0, r2.stdout);
     const line = r2.stdout.trim().split('\n').pop().trim();
     assert.deepStrictEqual(JSON.parse(line), [CANARY_A, CANARY_WEIRD, 'hello']);
-  }
+  });
 });
 
 test('openv export handles an empty profile without calling pass-cli', () => {
