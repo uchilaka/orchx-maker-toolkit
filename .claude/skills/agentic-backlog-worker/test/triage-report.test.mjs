@@ -118,3 +118,11 @@ test('debrief: rewrites TRIAGE.md when a baseline exists, skips it when none', (
   assert.match(readFileSync(triage, 'utf8'), /\| LAR-2 \|/);
   assert.ok(before.length > 0);
 });
+
+test('renderTriage: a long id list is capped at 20 with a count of the rest', () => {
+  const ids = Array.from({ length: 25 }, (_, i) => `LAR-${i + 1}`);
+  const b = { ...build([F('LAR-1')], [V('LAR-1')]), lastDelta: { new: ids, changed: [], removed: [] } };
+  const since = renderTriage({ baseline: b, run: null, themeOrder: THEMES }).split('## Since the last run')[1].split('##')[0];
+  assert.match(since, /LAR-20, \+5 more/);
+  assert.doesNotMatch(since, /LAR-21/);
+});

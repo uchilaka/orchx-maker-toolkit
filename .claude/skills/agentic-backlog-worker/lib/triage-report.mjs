@@ -13,7 +13,9 @@ export const triagePath = () => path.join(runsDir(), TRIAGE_MD);
 // Ticket text is untrusted: clean() makes it one inert line, and control characters go too.
 // eslint-disable-next-line no-control-regex
 const cell = (s) => clean(s).replace(/[\u0000-\u001f\u007f]/g, '') || '—';
-const ids = (list) => list.map(cell).join(', ');
+// At most `cap` ids, then a count of the rest: a first triage or a reconcile can touch hundreds.
+const ids = (list, cap = 20) => list.slice(0, cap).map(cell).join(', ')
+  + (list.length > cap ? `, +${list.length - cap} more` : '');
 const when = (sec) => (sec === null || sec === undefined
   ? 'never'
   : new Date(sec * 1000).toISOString().slice(0, 16).replace('T', ' '));

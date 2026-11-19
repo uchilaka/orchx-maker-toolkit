@@ -223,3 +223,10 @@ test('touched: unknown id → exit 1, baseline unchanged', () => {
   assert.match(t.json.error, /LAR-9/);
   assert.deepStrictEqual(box.baseline(), before);
 });
+
+test('merge --seed: lastDelta is null, so TRIAGE.md says first triage rather than listing every ticket', () => {
+  const { root, repo } = repos();
+  const box = sandbox(root);
+  box.run(['merge', '--seed', '--verdicts', box.file('v.json', [V('LAR-1', { repo })])]);
+  assert.strictEqual(box.baseline().lastDelta, null);
+});

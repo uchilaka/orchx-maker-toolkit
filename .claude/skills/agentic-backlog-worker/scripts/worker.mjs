@@ -719,7 +719,7 @@ function seed(t, verdicts) {
     rules: loadRules(repoRulesPath()), now: t, isToolkitRepo: isToolkitPath,
   });
   for (const tk of Object.values(b.tickets)) tk.updatedAt = null;
-  return { ...b, reconciledAt: null };
+  return { ...b, reconciledAt: null, lastDelta: null };
 }
 
 // A worked ticket stays out of the queue and out of reclassification (computeDelta): the ticket
