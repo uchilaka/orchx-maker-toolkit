@@ -1,6 +1,11 @@
 ---
 name: pr-ship-check
 description: After a PR's reviews have landed and every fix-now finding is addressed, decide whether it ships — and whether part of it should split out and ship ahead, or be simplified or separated first. Checks the fix-now gate from the ~/pr-reviews record and the PR's review threads, then gives high-confidence recommendations only, each with the files or commits and the evidence. Use when the user says "/pr-ship-check", "is this ready to ship", "can any of this ship ahead", "should I split this PR", "ship check", or at the end of /live-code-review or /pr-triage once their fix-now items are done. Not a review: it finds no new bugs (that's /pr-review or /live-code-review) and changes no code.
+argument-hint: <pr-number>...
+# Runs in its own subagent so the session that asked stays free (asked 2026-11-19).
+# The subagent starts without the conversation, so callers pass PR numbers.
+context: fork
+agent: general-purpose
 ---
 
 # /pr-ship-check — ship it, split it, or simplify it first
@@ -17,11 +22,21 @@ named files, commits and a check is a guess, so leave it out.
 
 ## Which PRs
 
-1. PR numbers or URLs passed as arguments.
-2. Otherwise, the PRs this session opened, reviewed or pushed to (from the conversation).
-3. Otherwise, the current branch's PR.
+**Check these PRs: $ARGUMENTS**
 
-Run everything below once per PR.
+Those are the PR numbers or URLs this run was started with. Check every one of them.
+Only if that line names no PR at all, check the current branch's PR instead.
+
+This skill runs in its own subagent, which can't see the conversation that started it,
+so whoever starts it (the user, `/live-code-review`, `/pr-triage`) passes the PR
+numbers. Run everything below once per PR.
+
+## What to hand back
+
+The session that started this sees only your final message, so end with one short block
+per PR: the verdict line, any spin-off or Step 4 item in one line each, the human-only
+steps, and the record's path and the posted comment's URL. If the gate failed, give its
+open items instead. If posting failed, say so and give the exact error.
 
 ## Step 1: The gate
 
