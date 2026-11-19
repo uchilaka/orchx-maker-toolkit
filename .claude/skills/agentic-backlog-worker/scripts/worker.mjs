@@ -177,7 +177,8 @@ function checkWindow(deadline) {
   return { t: ctx.t, out: { open, reason, resetsAt: window?.resetsAt ?? null } };
 }
 
-// One-shot: exit 0 when open, 3 while there is something to wait for. --wait re-checks every
+// One-shot: exit 0 when open, 3 (with the deadline) while there is something to wait for.
+// --wait re-checks every
 // 60s until the window opens (exit 0) or the deadline passes (exit 1). Without --deadline, it
 // waits until 15 minutes after the known reset, or 5h15m from the first check when none is known.
 async function windowCmd(opts) {
@@ -187,11 +188,12 @@ async function windowCmd(opts) {
   for (;;) {
     const { t, out } = checkWindow(deadline);
     if (out.open) return out;
-    if (!opts.wait) {
-      process.exitCode = 3;
-      return out;
-    }
     deadline ??= (out.resetsAt ?? t + 18000) + 900;
+    if (!opts.wait) {
+      // The deadline to pass to `window --wait`, so a re-armed wait keeps the same one.
+      process.exitCode = 3;
+      return { ...out, deadline };
+    }
     await sleep(intervalMs('ABW_POLL_S', 60));
   }
 }
@@ -359,8 +361,7 @@ function finish(id, opts) {
   const end5h = five ? five.pct : null;
   // A window that reset mid-ticket makes the delta meaningless, so it is not recorded.
   const sameWindow = five && ticket.startResetsAt === five.resetsAt;
-  // --no-cost: a synthetic result (crash resume) says nothing about what the ticket cost.
-  const measurable = !opts['no-cost'] && ticket.start5h !== null && end5h !== null && sameWindow;
+  const measurable = ticket.start5h !== null && end5h !== null && sameWindow;
   const delta5h = measurable ? Math.max(0, end5h - ticket.start5h) : null;
   const reason = result.outcome === 'failed' ? `failed: ${result.reason ?? ''}`.trim() : result.reason;
   const patch = {
@@ -414,8 +415,8 @@ function stop(opts) {
   if (!opts.reason) fail('usage: stop --reason <text>');
   const run = requireRun();
   const { t, usage } = context();
-  // A ticket still running was cut off with the run. No cost is recorded (as on the crash path):
-  // its usage delta mixes in whatever else was running. `capped` carries it into the next run.
+  // A ticket still running was cut off with the run (or the orchestrator crashed). No cost is
+  // recorded: its usage delta mixes in whatever else was running. `capped` carries it into the next run.
   for (const tk of run.tickets) {
     if (tk.status === 'running') Object.assign(tk, { status: 'capped', reason: 'run stopped mid-ticket' });
   }
@@ -553,7 +554,6 @@ async function main(argv) {
       deadline: { type: 'string' },
       wait: { type: 'boolean' },
       loop: { type: 'boolean' },
-      'no-cost': { type: 'boolean' },
     },
   });
   const [cmd, arg] = positionals;

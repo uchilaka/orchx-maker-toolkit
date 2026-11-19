@@ -194,6 +194,12 @@ test('window: exits 3 when capped and 0 when open', () => {
   const capped = box.run(['window']);
   assert.strictEqual(capped.code, 3);
   assert.strictEqual(capped.json.open, false);
+  assert.strictEqual(capped.json.deadline, NOW + 3600 + 900); // the reset plus 15 minutes
+  assert.strictEqual(box.run(['window', '--deadline', String(NOW + 5)]).json.deadline, NOW + 5);
+  // Capped by 7d with no 5h window: no reset is known, so 5h15m from now.
+  box.snapshot({ seven: 80 });
+  assert.strictEqual(box.run(['window']).json.deadline, NOW + 18900);
+  box.snapshot({ five: 80 });
   box.snapshot({ five: 10 });
   assert.strictEqual(box.run(['window']).code, 0);
   assert.strictEqual(box.run(['window'], { ABW_NOW: 'x' }).code, 1);
@@ -527,16 +533,6 @@ test('start: repo must be null (needs-repo or skipped) or a git repo under the r
   }
   const ok = [T('LAR-1'), T('LAR-2', { status: 'skipped', repo: null }), T('LAR-3', { status: 'needs-repo', repo: null })];
   assert.strictEqual(box.run(['start', '--tickets', box.tickets(ok)]).code, 0);
-});
-
-test('finish --no-cost records the outcome but no cost sample', () => {
-  const box = started();
-  box.run(['begin', 'LAR-1']);
-  box.snapshot({ five: 30 });
-  const r = box.run(['finish', 'LAR-1', '--no-cost', '--result',
-    '{"outcome":"capped","reason":"orchestrator stopped mid-ticket"}']);
-  assert.deepStrictEqual([r.json.status, r.json.recorded], ['capped', false]);
-  assert.ok(!existsSync(path.join(box.env.ABW_STATE_DIR, 'history.json')));
 });
 
 test('start: carries forward capped and handed-off tickets from an inactive run', () => {
