@@ -89,6 +89,7 @@ function blockingUnanswered(threads) {
   });
 }
 
+// TODO(LAR-495): accept a rebased fix by patch-id; today a rebase fails every item.
 // A fixing commit counts only if it is one of the PR's own commits. An ancestry
 // check would also accept any commit already on the base branch.
 function prCommitMatcher(oids) {
@@ -133,6 +134,9 @@ function projectName() {
   return path.basename(common.endsWith('/.git') ? path.dirname(common) : common).replace(/\.git$/, '');
 }
 
+// TODO(LAR-497): decide how several records for one PR combine (all must pass today).
+// TODO(LAR-499): export and test this, with the PR-<N>_ boundary and the exclusion.
+// TODO(LAR-501): Step 7 saves to ~/pr-reviews even when PR_REVIEWS_DIR is set.
 function reviewRecords(project, number) {
   const dir = path.join(process.env.PR_REVIEWS_DIR || path.join(os.homedir(), 'pr-reviews'), project);
   if (!fs.existsSync(dir)) return [];
@@ -144,6 +148,7 @@ function reviewRecords(project, number) {
 
 // One page only. pr-triage's threads.cjs pages through threads; until this reuses
 // it, a PR with more than one page fails the gate rather than hiding threads.
+// TODO(LAR-493): reuse threads.cjs's paginated fetch.
 const THREADS_QUERY = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
   reviewThreads(first:100){pageInfo{hasNextPage} nodes{isResolved comments(first:100){pageInfo{hasNextPage} nodes{author{login} body}}}}}}}`;
 
@@ -222,6 +227,7 @@ function main() {
 
   const out = {
     repo, pr: pr.number, state: pr.state, url: pr.url, title: pr.title, viewer,
+    // TODO(LAR-500): a shared or bot gh login makes every PR it opened "own".
     author: pr.author.login, ownWork: pr.author.login === viewer,
     base: pr.baseRefName, baseOid: pr.baseRefOid, head: pr.headRefName, headOid: pr.headRefOid, draft: pr.isDraft,
     mergeable: pr.mergeable, mergeState: pr.mergeStateStatus,
