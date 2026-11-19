@@ -10,13 +10,16 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadConfig, stateDir, runsDir, snapshotPath } from '../lib/config.mjs';
 import { readUsage, capStatus } from '../lib/usage.mjs';
+import { clean } from '../lib/sanitize.mjs';
 import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
   TICKET_STATUSES,
 } from '../lib/run-state.mjs';
 
-const ESTIMATES_BLOCKED =
-  'Turn on T-shirt estimates: Linear → Settings → Teams → LarCity Engineering → Estimates';
+const estimatesBlocked = (teams) =>
+  `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
+const TICKET_ID = /^[A-Z]+-[0-9]+$/;
+const SIZES = ['S', 'M', 'L', 'XL'];
 const OUTCOMES = ['pr', 'handoff', 'capped', 'failed'];
 const OUTCOME_STATUS = { pr: 'pr', handoff: 'handoff', capped: 'capped', failed: 'handoff' };
 // Statuses a ticket can be (re)started from: a fresh one, or a resumable one.
@@ -126,7 +129,7 @@ function preflight(opts) {
       : null,
     window,
     needsResetTime: ['missing', 'stale'].includes(ctx.usage.state) && !userFuture,
-    estimatesBlocked: estimates === 'disabled' ? ESTIMATES_BLOCKED : null,
+    estimatesBlocked: estimates === 'disabled' ? estimatesBlocked(ctx.config.teams) : null,
     run: run && { id: run.id, active: run.active, heartbeatAt: run.heartbeatAt, counts },
     config: ctx.config,
   };
@@ -223,11 +226,11 @@ function validateTickets(list) {
   return list.map((tk, i) => {
     if (!tk || typeof tk !== 'object') fail(`ticket ${i} is not an object`);
     const { id, title, size, repo, status, theme, reason } = tk;
-    if (typeof id !== 'string' || id === '') fail(`ticket ${i}: id must be a non-empty string`);
+    if (typeof id !== 'string' || !TICKET_ID.test(id)) fail(`ticket ${i}: id must look like ABC-123`);
     if (seen.has(id)) fail(`duplicate ticket id: ${id}`);
     seen.add(id);
     if (typeof title !== 'string') fail(`${id}: title must be a string`);
-    if (typeof size !== 'string') fail(`${id}: size must be a string`);
+    if (!SIZES.includes(size)) fail(`${id}: size must be one of ${SIZES}`);
     if (!TICKET_STATUSES.includes(status)) fail(`${id}: status must be one of ${TICKET_STATUSES}`);
     const out = { id, title, size, repo: checkRepo(id, repo, status), status };
     if (theme !== undefined) out.theme = String(theme);
@@ -372,8 +375,11 @@ function skip(id, opts) {
   return { id, status: 'skipped' };
 }
 
+// Re-reads run.json right before writing and touches only heartbeatAt, so a heartbeat racing a
+// `stop` or `finish` can't write a stale copy back over it. A stopped run is left alone.
 function heartbeatCmd() {
   const run = requireRun();
+  if (!run.active) return { skipped: 'inactive' };
   heartbeat(run, now());
   saveRun(stateDir(), run);
   return { heartbeatAt: run.heartbeatAt };
@@ -383,6 +389,11 @@ function stop(opts) {
   if (!opts.reason) fail('usage: stop --reason <text>');
   const run = requireRun();
   const { t, usage } = context();
+  // A ticket still running was cut off with the run. No cost is recorded (as on the crash path):
+  // its usage delta mixes in whatever else was running. `capped` carries it into the next run.
+  for (const tk of run.tickets) {
+    if (tk.status === 'running') Object.assign(tk, { status: 'capped', reason: 'run stopped mid-ticket' });
+  }
   run.active = false;
   run.stopReason = opts.reason;
   run.stoppedAt = t;
@@ -420,15 +431,6 @@ function debriefPath(run, date) {
   }
 }
 
-// Ticket ids, titles, reasons and branches come from Linear or an agent: untrusted. One line,
-// no HTML, no code spans, and nothing that can split a table cell or open a link.
-const clean = (s) => String(s ?? '')
-  .replace(/[\r\n\t]+/g, ' ')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/`/g, "'")
-  .replace(/([|[\]])/g, '\\$1')
-  .trim();
 const cell = (s) => clean(s) || '—';
 const pctText = (v) => (v === null || v === undefined ? 'n/a' : `${v}%`);
 

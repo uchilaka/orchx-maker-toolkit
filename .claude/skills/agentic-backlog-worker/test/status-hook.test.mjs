@@ -151,3 +151,19 @@ test('install/hooks.json parses and its command exists in the skill dir', () => 
   assert.ok(cmd.startsWith('{{SKILL_DIR}}/'));
   assert.ok(existsSync(path.join(SKILL, cmd.replace('{{SKILL_DIR}}/', ''))));
 });
+
+test('ticket lines are sanitized: newlines, markdown and HTML in untrusted fields', () => {
+  const out = rep({
+    tickets: [t('LAR-1', 'capped', {
+      title: 'Fix\n## injected [x](http://e) <b>hi</b> `code` a|b',
+      branch: 'br\nanch',
+    })],
+  });
+  const line = out.split('\n').find((l) => l.startsWith('- LAR-1'));
+  assert.ok(line, out);
+  assert.ok(!line.includes('\n'));
+  assert.ok(!line.includes('<b>'));
+  assert.ok(!line.includes('`'));
+  assert.ok(line.includes('\\[x\\]'));
+  assert.ok(!out.includes('\n## injected'));
+});

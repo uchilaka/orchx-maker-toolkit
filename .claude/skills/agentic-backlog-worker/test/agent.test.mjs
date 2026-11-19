@@ -65,12 +65,15 @@ test('PreToolUse hook runs the usage guard on every tool', () => {
   assert.strictEqual(entry.matcher, '*');
   const hook = entry.hooks[0];
   assert.strictEqual(hook.type, 'command');
+  // `|| exit 2`: a hook exit other than 2 is non-blocking, so a missing node (127) or a crash
+  // must be turned into a blocking exit or the guard fails open.
   assert.strictEqual(hook.command,
-    '"$HOME/.claude/skills/agentic-backlog-worker/scripts/usage-guard.mjs"');
+    '"$HOME/.claude/skills/agentic-backlog-worker/scripts/usage-guard.mjs" || exit 2');
+  assert.ok(hook.command.endsWith(' || exit 2'));
 });
 
 test('hook command resolves to an existing executable file in this skill', () => {
-  const cmd = fm.hooks.PreToolUse[0].hooks[0].command.replace(/^"|"$/g, '');
+  const cmd = fm.hooks.PreToolUse[0].hooks[0].command.match(/^"([^"]+)"/)[1];
   const real = cmd.replace('$HOME/.claude/skills/agentic-backlog-worker', skillDir);
   assert.ok(statSync(real).isFile());
   accessSync(real, constants.X_OK);
@@ -86,4 +89,25 @@ test('body pins git to the worktree and builds the PR from a body file', () => {
     'fixup-worktree', 'create_issue_label', 'never quote secrets']) {
     assert.ok(body.toLowerCase().includes(s.toLowerCase()), `body mentions ${s}`);
   }
+});
+
+test('worktree rule: worktree-init if present, else bootstrap-worktree; hand off only on failure', () => {
+  assert.ok(body.includes('bin/worktree-init'));
+  assert.ok(body.includes('bootstrap-worktree'));
+  assert.ok(!/git-crypt repo has no/.test(body));
+  assert.ok(!/uses git-crypt and has no/.test(body));
+});
+
+test('capped section: a denied checkpoint step is recorded and returned, not retried', () => {
+  assert.ok(body.includes('"reason":"checkpoint not pushed"'));
+  assert.ok(body.includes('Do not retry or try variants.'));
+});
+
+test('body does not invite the agent to write the orchestrator run state', () => {
+  assert.ok(!body.includes('run state file'));
+});
+
+test('size input is S or M only', () => {
+  assert.ok(body.includes('size (S or M)'));
+  assert.ok(!body.includes('S, M or L'));
 });

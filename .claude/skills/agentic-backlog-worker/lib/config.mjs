@@ -13,6 +13,7 @@ export const DEFAULTS = Object.freeze({
   cost_prior_m: 12,
 });
 
+// ABW_* overrides are test-only: SKILL.md hardcodes the default paths.
 // Paths read the environment at call time so tests can repoint HOME and the ABW_* overrides.
 const home = () => process.env.HOME;
 export const defaultConfigPath = () =>

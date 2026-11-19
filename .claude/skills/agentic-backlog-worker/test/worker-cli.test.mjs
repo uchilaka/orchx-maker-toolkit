@@ -15,8 +15,7 @@ const REPOS = realpathSync(mkdtempSync(path.join(tmpdir(), 'abw-repos-')));
 const REPO = path.join(REPOS, 'x');
 mkdirSync(path.join(REPO, '.git'), { recursive: true });
 mkdirSync(path.join(REPOS, 'not-a-repo'));
-const ESTIMATES_MSG =
-  'Turn on T-shirt estimates: Linear → Settings → Teams → LarCity Engineering → Estimates';
+const ESTIMATES_MSG = 'Turn on T-shirt estimates: Linear → Settings → Teams → LAR → Estimates';
 
 // Every test gets its own sandbox: state, runs, snapshot, config and HOME all under one temp dir,
 // so nothing touches the real ~/.claude or ~/.config.
@@ -568,4 +567,50 @@ test('skip: a carried ticket closed in Linear becomes skipped and is not carried
   box.run(['stop', '--reason', 'done']);
   box.run(['start', '--tickets', box.tickets([T('LAR-9')])]);
   assert.deepStrictEqual(box.runJson().tickets.map((tk) => tk.id), ['LAR-9']);
+});
+
+test('estimatesBlocked lists each configured team key', () => {
+  const box = sandbox();
+  writeFileSync(box.env.ABW_CONFIG, 'teams: [LAR, OPS]\n');
+  const r = box.run(['preflight', '--linear-estimates=disabled']);
+  assert.strictEqual(r.json.estimatesBlocked,
+    'Turn on T-shirt estimates: Linear → Settings → Teams → LAR, OPS → Estimates');
+});
+
+test('start: id must look like ABC-123 and size must be S, M, L or XL', () => {
+  const box = sandbox();
+  for (const bad of [{ id: 'lar-1' }, { id: 'LAR1' }, { id: 'LAR-1\nx' }, { id: 'LAR-1; rm' },
+    { size: 's' }, { size: 'XXL' }, { size: '' }]) {
+    const r = box.run(['start', '--tickets', box.tickets([T('LAR-1', bad)])]);
+    assert.strictEqual(r.code, 1, JSON.stringify(bad));
+    assert.ok(r.json.error, JSON.stringify(bad));
+  }
+  const ok = box.run(['start', '--tickets', box.tickets(
+    ['S', 'M', 'L', 'XL'].map((size, i) => T(`ENG-${i + 1}`, { size })))]);
+  assert.strictEqual(ok.code, 0, ok.stdout);
+});
+
+test('stop: tickets still running become capped, record no cost, and are carried to the next run', () => {
+  const box = started([T('LAR-1'), T('LAR-2')]);
+  box.run(['begin', 'LAR-1']);
+  box.snapshot({ five: 40, seven: 20 });
+  assert.strictEqual(box.run(['stop', '--reason', 'user stop']).code, 0);
+  const tk = box.runJson().tickets[0];
+  assert.deepStrictEqual([tk.status, tk.reason], ['capped', 'run stopped mid-ticket']);
+  assert.ok(!existsSync(path.join(box.env.ABW_STATE_DIR, 'history.json')));
+  assert.strictEqual(tk.delta5h, undefined);
+  const r = box.run(['start', '--tickets', box.tickets([T('LAR-9')])]);
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.deepStrictEqual(box.runJson().tickets.map((t) => [t.id, t.status]),
+    [['LAR-1', 'capped'], ['LAR-9', 'queued']]);
+});
+
+test('heartbeat: a stopped run is left untouched and reports skipped', () => {
+  const box = started();
+  box.run(['stop', '--reason', 'done'], { ABW_NOW: String(NOW + 10) });
+  const before = readFileSync(path.join(box.env.ABW_STATE_DIR, 'run.json'), 'utf8');
+  const r = box.run(['heartbeat'], { ABW_NOW: String(NOW + 500) });
+  assert.strictEqual(r.code, 0);
+  assert.deepStrictEqual(r.json, { skipped: 'inactive' });
+  assert.strictEqual(readFileSync(path.join(box.env.ABW_STATE_DIR, 'run.json'), 'utf8'), before);
 });

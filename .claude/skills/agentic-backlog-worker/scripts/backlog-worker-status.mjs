@@ -6,6 +6,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadRun, RunStateError } from '../lib/run-state.mjs';
+import { clean } from '../lib/sanitize.mjs';
 import { stateDir, runsDir as defaultRunsDir } from '../lib/config.mjs';
 
 // A heartbeat this old or newer means the worker is alive. Exactly 600s is still live; 601s is
@@ -22,7 +23,9 @@ const GROUPS = [
   ['queued', '**Queued**'],
 ];
 
-const ticketLine = (t) => `- ${t.id} ${t.title} — ${t.pr || t.branch || '(no branch)'}`;
+// Ticket fields are untrusted (Linear, agents), and this text lands in the session context.
+const ticketLine = (t) =>
+  `- ${clean(t.id)} ${clean(t.title)} — ${clean(t.pr || t.branch) || '(no branch)'}`;
 
 // The run file the debrief recorded, else the default name: the UTC day the run started.
 const runFile = (run, runsDir) => run.debriefPath

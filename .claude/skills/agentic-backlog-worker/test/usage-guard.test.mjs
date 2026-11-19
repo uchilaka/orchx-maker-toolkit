@@ -392,3 +392,40 @@ test('capped: git -C is allowed only for a real linked worktree named like a tic
     `git -C ${wt} status`,
   ]) assert.ok(capped(bash(cmd)), `should deny: ${cmd}`);
 });
+
+// The hook command string the agent ships. Claude Code only blocks on exit 2, so the guard must
+// never exit 127 (no node), 1 or a signal code unnoticed.
+const agentText = readFileSync(
+  fileURLToPath(new URL('../agents/agentic-ticket-worker.md', import.meta.url)), 'utf8');
+const HOOK_COMMAND = agentText.match(/^\s+command: '(.+)'$/m)[1];
+
+function runHookCommand(env) {
+  const home = path.join(tmp, `hookhome-${Math.random().toString(36).slice(2)}`);
+  const scripts = path.join(home, '.claude', 'skills', 'agentic-backlog-worker', 'scripts');
+  mkdirSync(scripts, { recursive: true });
+  symlinkSync(GUARD, path.join(scripts, 'usage-guard.mjs'));
+  return spawnSync('/bin/sh', ['-c', HOOK_COMMAND], {
+    input: hook,
+    encoding: 'utf8',
+    env: { HOME: home, ABW_CONFIG: cfgFile, ABW_SNAPSHOT: snapshotFile(10), ...env },
+  });
+}
+
+test('hook command: a working guard exits 0 (proves the harness before the failure cases)', () => {
+  const r = runHookCommand({ PATH: process.env.PATH });
+  assert.strictEqual(r.status, 0, r.stderr);
+});
+
+test('hook command: node missing from PATH exits 2 so the call is blocked', () => {
+  const r = runHookCommand({ PATH: path.join(tmp, 'no-node-here') });
+  assert.strictEqual(r.status, 2, r.stderr);
+});
+
+test('hook command: a missing script exits 2 so the call is blocked', () => {
+  const home = path.join(tmp, 'hookhome-empty');
+  mkdirSync(home, { recursive: true });
+  const r = spawnSync('/bin/sh', ['-c', HOOK_COMMAND], {
+    input: hook, encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH },
+  });
+  assert.strictEqual(r.status, 2, r.stderr);
+});

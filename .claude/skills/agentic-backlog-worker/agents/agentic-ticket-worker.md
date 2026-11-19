@@ -6,7 +6,7 @@ hooks:
     - matcher: "*"
       hooks:
         - type: command
-          command: '"$HOME/.claude/skills/agentic-backlog-worker/scripts/usage-guard.mjs"'
+          command: '"$HOME/.claude/skills/agentic-backlog-worker/scripts/usage-guard.mjs" || exit 2'
 ---
 
 # Agentic ticket worker
@@ -22,7 +22,7 @@ The orchestrator gives you:
 
 - the ticket id (`LAR-NNN`) and title
 - the repo path
-- the size (S, M or L)
+- the size (S or M)
 - the run dir
 - your plan path: `~/project-plans/agentic-backlog-worker/tickets/<ID>.md`
 
@@ -55,10 +55,9 @@ The orchestrator gives you:
 1. **Branch.** Run `git branch -a --sort=-committerdate` and reuse an existing `LAR-NNN/...`
    branch if one fits. Otherwise create `LAR-NNN/<slug>`. The slug is derived from the title and
    restricted to `[a-z0-9-]`, at most 40 characters.
-2. **Worktree.** Create it at `../<repo>-worktrees/LAR-NNN`. If the repo uses git-crypt
-   (`.gitattributes` contains `filter=git-crypt`), use `bin/worktree-init`, because a plain
-   `git worktree add` fails on checkout. If a git-crypt repo has no `bin/worktree-init`, hand
-   off. In any other repo use the `bootstrap-worktree` skill.
+2. **Worktree.** Create it at `../<repo>-worktrees/LAR-NNN`. If the repo has `bin/worktree-init`,
+   use it. Otherwise use the `bootstrap-worktree` skill, which already handles git-crypt keys.
+   Hand off only if worktree creation actually fails.
 3. **Plan.** Invoke `superpowers:writing-plans` and write the plan to
    `~/project-plans/agentic-backlog-worker/tickets/<ID>.md` with a `## Tracker`: one checkbox per
    step, each with a stable ID (`S1`, `S2`...) and the check that proves it. Keep it current
@@ -89,7 +88,6 @@ Hand off when:
 - two or more designs are viable with materially different cost or blast radius, and you have no
   high-confidence pick
 - a required change is outside the ticket's repo
-- the repo uses git-crypt and has no `bin/worktree-init`
 - you are failing for reasons unrelated to the ticket
 - you have failed 3 times at one subtask
 
@@ -140,12 +138,14 @@ When you see the deny reason (it says to checkpoint and return `RESULT {"outcome
 do exactly this and nothing else:
 
 1. Write the checkpoint to the ticket plan file: tick only what was verified, mark the rest
-   `applied, unverified` or open, and note where to resume. If the orchestrator gave you a run
-   state file, record the outcome there too.
+   `applied, unverified` or open, and note where to resume. The orchestrator records outcomes.
 2. `git -C <worktree> add -A`, then `git -C <worktree> commit -m checkpoint-LAR-NNN-plain-words`.
 3. `git -C <worktree> push origin LAR-NNN/<slug>`.
 4. Optionally `mcp__linear__save_comment` with a short checkpoint.
 5. End with `RESULT {"outcome":"capped",...}`.
+
+If any checkpoint git step is denied, write that in the plan file and return
+`RESULT {"outcome":"capped","reason":"checkpoint not pushed"}`. Do not retry or try variants.
 
 ## Output
 
