@@ -55,7 +55,10 @@ jq '{id, active, heartbeatAt,
   `{"outcome":"capped","reason":"orchestrator stopped mid-ticket"}` to
   `~/.claude/state/agentic-backlog-worker/result-<ID>.json` and run
   `worker.mjs finish <ID> --no-cost --result "$(cat <that file>)"`. (`--no-cost`: a synthetic
-  result says nothing about what the ticket cost.) Then treat it like the next case.
+  result says nothing about what the ticket cost.) Then, if it now has unacknowledged `capped`
+  or `handoff` tickets, treat it like the next case. If it has none (only `queued` or `pr`
+  tickets), ask one question: resume the queue (steps 2 and 5, then step 6 on this run; skip
+  triage), or stop it and start fresh (`worker.mjs stop --reason crashed`, then step 2).
 - **Any run with `capped` or `handoff` tickets not marked `acknowledged`:** list them and ask
   one question: resume, or close out.
   - **Close out:** if still active, `worker.mjs stop --reason "closed out by user"`. Then
@@ -66,6 +69,7 @@ jq '{id, active, heartbeatAt,
   - **Resume an inactive run:** do a fresh triage (steps 2 to 4). `start` carries the old run's
     capped and handed-off tickets forward, first in the queue. A carried hand-off is only worked
     when I say its decision is made: then triage lists it as `queued`, which replaces it.
+- **Otherwise** (an inactive run with nothing open): go to step 2.
 
 ### 2. Preflight
 
@@ -192,6 +196,11 @@ Work `capped` tickets first (carried or resumed), then `queued`, in run order. A
 ticket is never begun here. Repeat while one remains and fewer than
 `config.max_parallel_tickets` agents are in flight. When none remains and no agent is in
 flight, go to step 7 with reason `queue empty`.
+
+A `capped` ticket, or one with `carriedFrom`, may have been closed since its last run. Before
+taking one, call `mcp__linear__get_issue`. If its state type is completed or canceled, run
+`worker.mjs skip <ID> --reason "closed in Linear"`, print `abw: <ID> skipped, closed in
+Linear`, and take the next ticket.
 
 1. `worker.mjs afford <ID>`. If `ok` is false, launch nothing more. Once in-flight agents
    return, stop (step 7) with reason `next ticket would breach the 5h cap`, or its `reason`.

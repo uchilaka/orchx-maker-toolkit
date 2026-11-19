@@ -4,7 +4,7 @@
 // failure, and `window` exits 3 when the 5h window is not open (for the Monitor until-loop).
 // Times are Unix seconds; ABW_NOW overrides the clock for tests.
 import {
-  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync,
+  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync,
 } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -193,7 +193,11 @@ function checkRepo(id, repo, status) {
     fail(`${id}: repo does not exist: ${repo}`);
   }
   if (!real.startsWith(root + path.sep)) fail(`${id}: repo is not under ${reposRoot()}`);
-  if (!existsSync(path.join(real, '.git'))) fail(`${id}: repo has no .git: ${repo}`);
+  // A directory, not just present: a linked worktree's .git is a file, and the ticket agent
+  // would nest its own worktree inside it.
+  let gitDir = false;
+  try { gitDir = statSync(path.join(real, '.git')).isDirectory(); } catch { /* no .git */ }
+  if (!gitDir) fail(`${id}: repo is not a git repo checkout (.git must be a directory): ${repo}`);
   return real;
 }
 
@@ -354,6 +358,18 @@ function finish(id, opts) {
     recordCost(stateDir(), { size: ticket.size, delta5h, tokens, shared: Boolean(ticket.shared) });
   }
   return { id, status: patch.status, delta5h, recorded: measurable };
+}
+
+// Takes a not-yet-running ticket out of the queue without pretending it was worked: e.g. a
+// carried ticket that was closed in Linear meanwhile. `skipped` is never carried forward.
+function skip(id, opts) {
+  if (!opts.reason) fail('usage: skip <ID> --reason <text>');
+  const run = requireRun();
+  const ticket = findTicket(run, id);
+  if (!BEGINNABLE.includes(ticket.status)) fail(`${id} is ${ticket.status}, cannot skip`);
+  setTicket(run, id, { status: 'skipped', reason: opts.reason });
+  saveRun(stateDir(), run);
+  return { id, status: 'skipped' };
 }
 
 function heartbeatCmd() {
@@ -522,6 +538,7 @@ function main(argv) {
     case 'afford': return { out: afford(arg) };
     case 'begin': return { out: begin(arg) };
     case 'finish': return { out: finish(arg, opts) };
+    case 'skip': return { out: skip(arg, opts) };
     case 'heartbeat': return { out: heartbeatCmd() };
     case 'stop': return { out: stop(opts) };
     case 'close-out': return { out: closeOut() };

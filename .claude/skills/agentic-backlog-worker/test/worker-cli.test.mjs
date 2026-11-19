@@ -520,3 +520,52 @@ test('debrief: a second run on the same day gets RUN_<date>-2.md and keeps it', 
   assert.strictEqual(box.run(['debrief']).json.path, second);
   assert.match(readFileSync(first, 'utf8'), /first/);
 });
+
+// --- fix round 2 -----------------------------------------------------------------------------
+
+test('start: a linked worktree (its .git is a file) is not a repo', () => {
+  const real = path.join(REPOS, 'real');
+  const wt = path.join(REPOS, 'real-wt');
+  const git = (...args) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+  };
+  git('init', '-q', real);
+  git('-C', real, 'commit', '-q', '--allow-empty', '-m', 'init');
+  git('-C', real, 'worktree', 'add', '-q', wt);
+  const box = sandbox();
+  const r = box.run(['start', '--tickets', box.tickets([T('LAR-1', { repo: wt })])]);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.json.error, /not a git repo checkout/);
+  assert.strictEqual(box.run(['start', '--tickets', box.tickets([T('LAR-1', { repo: real })])]).code, 0);
+});
+
+test('a crashed run with nothing resumable: stop --reason crashed, then a fresh start', () => {
+  const box = started([T('LAR-1'), T('LAR-2')]);
+  box.run(['begin', 'LAR-1']);
+  box.run(['finish', 'LAR-1', '--result', '{"outcome":"pr","pr":"https://github.com/o/r/pull/1"}']);
+  const later = { ABW_NOW: String(NOW + 7200) }; // heartbeat long stale
+  assert.strictEqual(box.run(['start', '--tickets', box.tickets([T('LAR-3')])], later).code, 1);
+  assert.strictEqual(box.run(['stop', '--reason', 'crashed'], later).code, 0);
+  const r = box.run(['start', '--tickets', box.tickets([T('LAR-3')])], later);
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.deepStrictEqual(box.runJson().tickets.map((t) => t.id), ['LAR-3']);
+});
+
+test('skip: a carried ticket closed in Linear becomes skipped and is not carried again', () => {
+  const box = started([T('LAR-1'), T('LAR-2')]);
+  box.run(['begin', 'LAR-1']);
+  box.run(['finish', 'LAR-1', '--result', '{"outcome":"capped","reason":"cap"}']);
+  assert.strictEqual(box.run(['skip', 'LAR-1']).code, 1); // reason required
+  const r = box.run(['skip', 'LAR-1', '--reason', 'closed in Linear']);
+  assert.deepStrictEqual(r.json, { id: 'LAR-1', status: 'skipped' });
+  const t = box.runJson().tickets[0];
+  assert.deepStrictEqual([t.status, t.reason], ['skipped', 'closed in Linear']);
+  box.run(['begin', 'LAR-2']);
+  assert.strictEqual(box.run(['skip', 'LAR-2', '--reason', 'x']).code, 1); // running: finish it
+  box.run(['finish', 'LAR-2', '--result', '{"outcome":"pr","pr":"https://github.com/o/r/pull/2"}']);
+  assert.strictEqual(box.run(['skip', 'LAR-2', '--reason', 'x']).code, 1); // done is done
+  box.run(['stop', '--reason', 'done']);
+  box.run(['start', '--tickets', box.tickets([T('LAR-9')])]);
+  assert.deepStrictEqual(box.runJson().tickets.map((tk) => tk.id), ['LAR-9']);
+});
