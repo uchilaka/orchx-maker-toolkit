@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { writeFileSync, mkdtempSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS } from '../lib/config.mjs';
 import {
   RunStateError, loadRun, saveRun, newRun, heartbeat, setTicket,
   loadHistory, recordCost, expectedCost, affordable,
 } from '../lib/run-state.mjs';
+import { tmpRoot } from './helpers.mjs';
 
-const tmp = mkdtempSync(path.join(tmpdir(), 'abw-run-state-'));
+const tmp = tmpRoot('abw-run-state-');
 let n = 0;
 const freshDir = () => path.join(tmp, `d${n++}`);
 const cfg = { ...DEFAULTS };

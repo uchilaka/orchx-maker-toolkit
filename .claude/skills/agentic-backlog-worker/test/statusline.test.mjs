@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { tmpRoot } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(here, '..', 'scripts', 'statusline.sh');
-const tmpHome = () => mkdtempSync(path.join(tmpdir(), 'abw-statusline-'));
+const tmpHome = () => tmpRoot('abw-statusline-');
 const stateDir = (home) => path.join(home, '.claude', 'state', 'statusline');
 const stateFile = (home) => path.join(stateDir(home), 'rate-limits.json');
 const payload = (rate_limits) => JSON.stringify({ model: { display_name: 'O' }, rate_limits });
@@ -130,7 +130,7 @@ test('a corrupt state file self-heals', () => {
 test('stale-lock break works with a GNU-style stat (-f is a junk report, -c %Y is the epoch)', async () => {
   const home = tmpHome();
   withLock(home, 60);
-  const bin = mkdtempSync(path.join(tmpdir(), 'abw-stat-'));
+  const bin = tmpRoot('abw-stat-');
   const stub = path.join(bin, 'stat');
   writeFileSync(stub, [
     '#!/bin/bash',

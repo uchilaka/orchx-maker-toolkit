@@ -1,17 +1,18 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert';
 import {
-  mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync, linkSync, copyFileSync,
-  readFileSync,
+  mkdtempSync, mkdirSync, symlinkSync, writeFileSync, linkSync, copyFileSync, readFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../lib/config.mjs';
+import {
+  NOW, tmpRoot, writeJson, git, runNode,
+} from './helpers.mjs';
 
 const GUARD = fileURLToPath(new URL('../scripts/usage-guard.mjs', import.meta.url));
-const tmp = realpathSync(mkdtempSync(path.join(tmpdir(), 'abw-guard-')));
+const tmp = tmpRoot('abw-guard-');
 const STATE = path.join(tmp, 'state');
 const RUNS = path.join(tmp, 'runs-not-created-yet', 'deeper');
 const HOME = path.join(tmp, 'home');
@@ -23,7 +24,6 @@ process.env.HOME = HOME;
 
 const { decide } = await import('../scripts/usage-guard.mjs');
 
-const NOW = 1_800_000_000;
 const okUsage = { state: 'ok', fiveHour: { pct: 10, resetsAt: NOW + 1 }, sevenDay: null, capturedAt: NOW };
 const cappedUsage = { state: 'ok', fiveHour: { pct: 80, resetsAt: NOW + 1 }, sevenDay: null, capturedAt: NOW };
 const cfg = { ...DEFAULTS };
@@ -165,24 +165,14 @@ test('stale or missing usage denies with the reason', () => {
 });
 
 // CLI: spawn the real script, as the hook runner does.
-const runCli = (stdin, env = {}) =>
-  spawnSync(process.execPath, [GUARD], {
-    input: stdin,
-    encoding: 'utf8',
-    env: { ...process.env, ...env },
-  });
+const runCli = (input, env = {}) => runNode(GUARD, { input, env });
 
 const snapshotFile = (pct) => {
-  const p = path.join(tmp, `snap-${pct}.json`);
   const now = Date.now() / 1000;
-  writeFileSync(
-    p,
-    JSON.stringify({
-      captured_at: now,
-      rate_limits: { five_hour: { used_percentage: pct, resets_at: now + 3600 } },
-    }),
-  );
-  return p;
+  return writeJson(path.join(tmp, `snap-${pct}.json`), {
+    captured_at: now,
+    rate_limits: { five_hour: { used_percentage: pct, resets_at: now + 3600 } },
+  });
 };
 const cfgFile = path.join(tmp, 'config.yml');
 writeFileSync(cfgFile, 'usage_cap_5h: 75\n');
@@ -318,10 +308,7 @@ test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSO
       writeFileSync(path.join(dir, 'lib', 'config.mjs'), "throw new Error('boom');\n");
       writeFileSync(path.join(dir, 'lib', 'usage.mjs'), 'export {};\n');
     }
-    const r = spawnSync(process.execPath, [path.join(dir, 'scripts', 'usage-guard.mjs')], {
-      input: hook,
-      encoding: 'utf8',
-    });
+    const r = runNode(path.join(dir, 'scripts', 'usage-guard.mjs'), { input: hook });
     assert.strictEqual(r.status, 0, mode);
     const out = JSON.parse(r.stdout).hookSpecificOutput;
     assert.strictEqual(out.permissionDecision, 'deny', mode);
@@ -330,17 +317,13 @@ test('CLI: a broken or missing lib fails closed instead of exiting 1 with no JSO
 });
 
 test('capped: git -C is allowed only for a real linked worktree named like a ticket', () => {
-  const sh = (cwd, ...args) => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
-    assert.strictEqual(r.status, 0, r.stderr);
-  };
   const main = path.join(tmp, 'x', 'repo');
   mkdirSync(main, { recursive: true });
-  sh(main, 'init', '-q');
-  sh(main, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'i');
+  git('-C', main, 'init', '-q');
+  git('-C', main, 'commit', '-q', '--allow-empty', '-m', 'i');
   const wts = path.join(tmp, 'x', 'repo-worktrees');
   const wt = path.join(wts, 'LAR-1');
-  sh(main, 'worktree', 'add', '-q', '-b', 'LAR-1/a', wt);
+  git('-C', main, 'worktree', 'add', '-q', '-b', 'LAR-1/a', wt);
   assert.strictEqual(capped(bash(`git -C ${wt} add -A`)), null);
   assert.strictEqual(capped(bash(`git -C ${wt} commit -m wip`)), null);
   assert.strictEqual(capped(bash(`git -C ${wt} push origin LAR-1/a`)), null);

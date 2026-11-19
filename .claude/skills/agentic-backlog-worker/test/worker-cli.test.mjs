@@ -1,17 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync,
-} from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  NOW, tmpRoot, writeJson, git, abwEnv, runNode,
+} from './helpers.mjs';
 
 const CLI = fileURLToPath(new URL('../scripts/worker.mjs', import.meta.url));
-const NOW = 1_800_000_000; // 2027-01-15T08:00:00Z
 // Stands in for /opt/Developer: `start` only accepts repos under it that contain .git.
-const REPOS = realpathSync(mkdtempSync(path.join(tmpdir(), 'abw-repos-')));
+const REPOS = tmpRoot('abw-repos-');
 const REPO = path.join(REPOS, 'x');
 mkdirSync(path.join(REPO, '.git'), { recursive: true });
 mkdirSync(path.join(REPOS, 'not-a-repo'));
@@ -20,30 +20,20 @@ const ESTIMATES_MSG = 'Turn on T-shirt estimates: Linear → Settings → Teams 
 // Every test gets its own sandbox: state, runs, snapshot, config and HOME all under one temp dir,
 // so nothing touches the real ~/.claude or ~/.config.
 function sandbox() {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'abw-cli-')));
-  const env = {
-    ...process.env,
-    HOME: path.join(root, 'home'),
-    ABW_STATE_DIR: path.join(root, 'state'),
-    ABW_RUNS_DIR: path.join(root, 'runs'),
-    ABW_SNAPSHOT: path.join(root, 'snap.json'),
-    ABW_CONFIG: path.join(root, 'config.yml'),
-    ABW_NOW: String(NOW),
-    ABW_REPOS_ROOT: REPOS,
-  };
-  mkdirSync(env.HOME, { recursive: true });
+  const root = tmpRoot('abw-cli-');
+  const env = { ...abwEnv(root), ABW_REPOS_ROOT: REPOS };
   const box = {
     root,
     env,
     run(args, extraEnv = {}) {
-      const r = spawnSync('node', [CLI, ...args], { encoding: 'utf8', env: { ...env, ...extraEnv } });
+      const r = runNode(CLI, { args, env: { ...env, ...extraEnv } });
       let json = null;
       try { json = JSON.parse(r.stdout); } catch { /* asserted by callers */ }
       return { code: r.status, json, stdout: r.stdout, stderr: r.stderr };
     },
     // For the long-running loops: resolves on exit, so the test can act while it runs.
     spawn(args, extraEnv = {}) {
-      const child = spawn('node', [CLI, ...args], { env: { ...env, ...extraEnv } });
+      const child = spawn(process.execPath, [CLI, ...args], { env: { ...env, ...extraEnv } });
       let stdout = '';
       child.stdout.on('data', (d) => { stdout += d; });
       const done = new Promise((resolve) => {
@@ -59,13 +49,9 @@ function sandbox() {
       const limits = {};
       if (five !== undefined) limits.five_hour = { used_percentage: five, resets_at: fiveResets };
       if (seven !== undefined) limits.seven_day = { used_percentage: seven, resets_at: NOW + 86400 };
-      writeFileSync(env.ABW_SNAPSHOT, JSON.stringify({ captured_at: capturedAt, rate_limits: limits }));
+      writeJson(env.ABW_SNAPSHOT, { captured_at: capturedAt, rate_limits: limits });
     },
-    tickets(list) {
-      const file = path.join(root, 'tickets.json');
-      writeFileSync(file, JSON.stringify(list));
-      return file;
-    },
+    tickets: (list) => writeJson(path.join(root, 'tickets.json'), list),
     runJson: () => JSON.parse(readFileSync(path.join(env.ABW_STATE_DIR, 'run.json'), 'utf8')),
     history: () => JSON.parse(readFileSync(path.join(env.ABW_STATE_DIR, 'history.json'), 'utf8')),
   };
@@ -595,10 +581,6 @@ test('debrief: a second run on the same day gets RUN_<date>-2.md and keeps it', 
 test('start: a linked worktree (its .git is a file) is not a repo', () => {
   const real = path.join(REPOS, 'real');
   const wt = path.join(REPOS, 'real-wt');
-  const git = (...args) => {
-    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' });
-    assert.strictEqual(r.status, 0, r.stderr);
-  };
   git('init', '-q', real);
   git('-C', real, 'commit', '-q', '--allow-empty', '-m', 'init');
   git('-C', real, 'worktree', 'add', '-q', wt);

@@ -1,19 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEFAULTS } from '../lib/config.mjs';
 import { readUsage, capStatus } from '../lib/usage.mjs';
+import { NOW, tmpRoot, writeJson } from './helpers.mjs';
 
-const tmp = mkdtempSync(path.join(tmpdir(), 'abw-usage-'));
+const tmp = tmpRoot('abw-usage-');
 let n = 0;
-const NOW = 1_800_000_000;
-const snap = (obj) => {
-  const p = path.join(tmp, `snap-${n++}.json`);
-  writeFileSync(p, typeof obj === 'string' ? obj : JSON.stringify(obj));
-  return p;
-};
+const snap = (obj) => writeJson(path.join(tmp, `snap-${n++}.json`), obj);
 const reading = ({ five, seven, age = 60 } = {}) => {
   const rate_limits = {};
   if (five !== undefined) rate_limits.five_hour = { used_percentage: five, resets_at: NOW + 3600 };

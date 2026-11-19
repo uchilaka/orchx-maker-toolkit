@@ -1,17 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { report } from '../scripts/backlog-worker-status.mjs';
+import {
+  NOW, tmpRoot, writeJson, runNode,
+} from './helpers.mjs';
 
 const SKILL = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = path.join(SKILL, 'scripts', 'backlog-worker-status.mjs');
-const tmp = mkdtempSync(path.join(tmpdir(), 'abw-status-'));
+const tmp = tmpRoot('abw-status-');
 let n = 0;
-const NOW = 1_800_000_000; // 2027-01-15T08:00:00Z
 const RUNS = path.join(tmp, 'runs');
 
 const t = (id, status, extra = {}) => ({
@@ -20,11 +20,10 @@ const t = (id, status, extra = {}) => ({
 // Writes a run.json into a fresh dir and returns the dir.
 function dirWith(run) {
   const dir = path.join(tmp, `d${n++}`);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, 'run.json'), JSON.stringify({
+  writeJson(path.join(dir, 'run.json'), {
     id: 'r1', active: false, startedAt: NOW - 3600, heartbeatAt: NOW - 120,
     window: { resetsAt: NOW + 1000, source: 'x' }, tickets: [], ...run,
-  }));
+  });
   return dir;
 }
 const rep = (run) => report({ now: NOW, dir: dirWith(run), runsDir: RUNS });
@@ -127,9 +126,7 @@ test('corrupt run.json is reported, not silent', () => {
 test('CLI exits 0 with empty stdout when there is no run', () => {
   const dir = path.join(tmp, `d${n++}`);
   mkdirSync(dir);
-  const r = spawnSync(process.execPath, [SCRIPT], {
-    encoding: 'utf8', env: { ...process.env, ABW_STATE_DIR: dir, ABW_RUNS_DIR: RUNS },
-  });
+  const r = runNode(SCRIPT, { env: { ABW_STATE_DIR: dir, ABW_RUNS_DIR: RUNS } });
   assert.strictEqual(r.status, 0);
   assert.strictEqual(r.stdout, '');
 });
@@ -138,9 +135,7 @@ test('CLI exits 0 and reports a corrupt run', () => {
   const dir = path.join(tmp, `d${n++}`);
   mkdirSync(dir);
   writeFileSync(path.join(dir, 'run.json'), '{nope');
-  const r = spawnSync(process.execPath, [SCRIPT], {
-    encoding: 'utf8', env: { ...process.env, ABW_STATE_DIR: dir, ABW_RUNS_DIR: RUNS },
-  });
+  const r = runNode(SCRIPT, { env: { ABW_STATE_DIR: dir, ABW_RUNS_DIR: RUNS } });
   assert.strictEqual(r.status, 0);
   assert.match(r.stdout, /^Backlog worker: couldn't read /);
 });

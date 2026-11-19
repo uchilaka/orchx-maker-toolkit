@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULTS, loadConfig, defaultConfigPath, stateDir, runsDir, snapshotPath,
 } from '../lib/config.mjs';
+import { tmpRoot } from './helpers.mjs';
 
-const tmp = mkdtempSync(path.join(tmpdir(), 'abw-config-'));
+const tmp = tmpRoot('abw-config-');
 let n = 0;
 const write = (text) => {
   const p = path.join(tmp, `config-${n++}.yml`);
