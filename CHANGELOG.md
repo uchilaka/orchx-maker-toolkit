@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`/agentic-backlog-worker` `denied_repos`:** a list of absolute paths in `~/.config/agentic-backlog-worker/config.yml` (`denied_repos: [/opt/Developer/old-repo]`) that are never a ticket repo, nor are their `-worktrees/` siblings. `start` and `rule` refuse them, and so does `merge` for any verdict queued on one. Use it for an archived or superseded checkout that still sits under `/opt/Developer`.
+
 ## [0.9.0-alpha] - 2026-11-20
 
 ### Added

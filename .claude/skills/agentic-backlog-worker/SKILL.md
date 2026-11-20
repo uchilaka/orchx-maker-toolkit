@@ -132,6 +132,9 @@ files yourself.
    find /opt/Developer -maxdepth 3 -name .git -not -path '*-worktrees/*' | sed 's|/.git$||'
    ```
 
+   Drop any repo listed in `config.denied_repos` (archived or superseded checkouts): `start`
+   and `rule` refuse it and its worktrees.
+
 4. Classify each `classify` ticket by the design's rules (`mcp__linear__get_issue` when you need
    its description), and give each a size: S, M, L or XL.
    - **Eligible** (`queued`): a code-and-tests change, inside one inferable repo, sized S or M.
