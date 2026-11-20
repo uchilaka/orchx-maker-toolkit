@@ -80,6 +80,8 @@ function isBlocking(body) {
 
 // Unresolved threads whose opening comment is marked blocking, where nobody but
 // that comment's author has replied.
+// TODO(LAR-523): count only the PR author's reply; a bot or drive-by reply
+// answers the thread today, so the gate fails open.
 function blockingUnanswered(threads) {
   return threads.filter((t) => {
     if (t.isResolved || !t.comments.length) return false;
