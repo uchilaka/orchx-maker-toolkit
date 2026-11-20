@@ -1,0 +1,36 @@
+# Commands that put a Proton Pass value in front of the agent.
+#
+# TODO(LAR-526): decide whether access-changing commands (item/vault share,
+# agent access grant, ssh-agent, password generate) belong here too.
+#
+# This header is the format contract. hooks/guard.jq, test/guard.test.mjs and
+# the permissions.deny (S12) and OpenCode (S16) snippet generators all read the
+# file this way, so edit the list here only.
+#
+# - A line that is empty, only whitespace, or starts with # (after optional
+#   whitespace) is skipped. Every other line is <pattern><TAB><reason>, with
+#   the pattern's words separated by single spaces. If any row breaks this, or
+#   there are no rows, the guard blocks every command that names openv or
+#   pass-cli rather than guess.
+# - Before matching, quotes are removed and backslash-newlines joined, as the
+#   shell would, so "/opt/homebrew/bin/pass-cli" item view and a command split
+#   over two lines both match.
+# - A word pattern matches when its words appear in order as whole tokens,
+#   separated by whitespace or a ")" (for $(which pass-cli) item view). The
+#   first word may carry a path (/opt/homebrew/bin/pass-cli) and must start a
+#   token: at the start of the line, or after any character other than a
+#   letter, digit, _ . / or -.
+# - A --flag pattern matches as a whole token anywhere in a command that also
+#   names openv, pass-cli or pass://.
+openv export	prints resolved values for your shell; run it in your own terminal, not here
+pass-cli item view	prints an item's values
+pass-cli item totp	prints TOTP codes
+pass-cli item attachment download	writes an attachment's contents
+pass-cli totp	prints TOTP codes
+pass-cli inject	renders a template with the values filled in
+pass-cli export	exports vault contents
+pass-cli personal-access-token	creates or prints an access token
+pass-cli agent create	prints a new agent token
+pass-cli agent renew	prints a renewed agent token
+--no-masking	turns off pass-cli's masking of values in output
+--show-secrets	adds values to pass-cli's listing output

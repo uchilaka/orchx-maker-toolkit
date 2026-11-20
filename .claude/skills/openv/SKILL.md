@@ -10,7 +10,9 @@ OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given w
 skill loads.
 
 > In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export` and
-> `mise run install:openv` work now. `items`, hooks and the template builder come next.
+> `mise run install:openv` work now. The command guard (`hooks/guard-secrets.sh`, its
+> patterns in `hooks/deny.tsv`) is written but not yet installed as a hook. `items`, the
+> hook wiring and the template builder come next.
 
 ## The rule this skill exists for
 
@@ -24,6 +26,8 @@ follows these rules. It is not a boundary against an agent that's trying: an age
 a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value inside
 `openv run`, or get past `export`'s checks. The real boundary is the agent having no
 `pass-cli` login of its own.
+
+<!-- TODO(LAR-527): say masking covers stdout/stderr and whole values only (files, partial values). -->
 
 ## Requirements
 
