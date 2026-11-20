@@ -161,6 +161,13 @@ ${overlayDialog()}
 // <pre> itself holds the SVG by then). Download SVG saves the page's own SVG, not the
 // overlay's 100%-sized copy, sized to its viewBox and given the screen's background, so
 // the file opens at full size and a dark-theme diagram stays readable.
+//
+// Saving the file reloads the whole page, which would close the overlay. So an open
+// overlay is remembered in sessionStorage (position and source), and the first render
+// after a reload reopens it: on the diagram with the same source, which follows one
+// pushed down by a new diagram above it, else on the one at the same position, which
+// follows the one being edited, else not at all. Only a reload restores it; arriving at
+// the page any other way finds the entry, drops it and stays closed.
 (function () {
   var dialog = document.querySelector("[data-diagram-dialog]");
   var stage = dialog.querySelector("[data-stage]");
@@ -176,6 +183,31 @@ ${overlayDialog()}
   var copyButton = dialog.querySelector("[data-copy-source]");
   var copyIcon = copyButton.innerHTML;
   var copyTimer = null;
+  var KEY = "browse:diagram:" + location.pathname;
+  var restore = takeSaved();
+  // Storage can throw (blocked site data); losing the restore is fine.
+  function takeSaved() {
+    try {
+      var raw = sessionStorage.getItem(KEY);
+      sessionStorage.removeItem(KEY);
+      var nav = performance.getEntriesByType("navigation")[0];
+      return raw && nav && nav.type === "reload" ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  function remember() {
+    try { sessionStorage.setItem(KEY, JSON.stringify({ index: index, source: current().dataset.mermaidSource })); } catch (err) {}
+  }
+  function forget() {
+    try { sessionStorage.removeItem(KEY); } catch (err) {}
+  }
+  function reopen(saved) {
+    var sources = [].map.call(document.querySelectorAll("pre.mermaid"), function (pre) { return pre.dataset.mermaidSource; });
+    var at = sources[saved.index] === saved.source ? saved.index : sources.indexOf(saved.source);
+    if (at < 0 && saved.index < sources.length) at = saved.index;
+    if (at >= 0) open(document.querySelectorAll("[data-expand]")[at]);
+  }
   function current() {
     var frame = document.querySelectorAll("[data-diagram]")[index];
     return frame ? frame.querySelector("pre.mermaid") : null;
@@ -210,6 +242,7 @@ ${overlayDialog()}
     index = [].indexOf.call(document.querySelectorAll("[data-expand]"), button);
     if (!show()) return; // not rendered yet: nothing to show
     dialog.showModal();
+    remember();
     loadPanzoom().then(function (Panzoom) {
       if (!dialog.open || pz) return;
       pz = Panzoom(zoom, { minScale: 0.5, maxScale: 12, step: 0.3, cursor: "grab" });
@@ -229,6 +262,7 @@ ${overlayDialog()}
     zoom.removeAttribute("style"); // Panzoom leaves its transform behind
     zoom.textContent = "";
     resetCopy();
+    forget();
     index = -1;
     if (opener) opener.focus();
   });
@@ -273,7 +307,14 @@ ${overlayDialog()}
   dialog.querySelector("[data-zoom-in]").addEventListener("click", function () { if (pz) pz.zoomIn(); });
   dialog.querySelector("[data-zoom-out]").addEventListener("click", function () { if (pz) pz.zoomOut(); });
   dialog.querySelector("[data-zoom-reset]").addEventListener("click", function () { if (pz) pz.reset(); });
-  window.addEventListener("browse:mermaid-rendered", function () { if (dialog.open) show(); });
+  window.addEventListener("browse:mermaid-rendered", function () {
+    if (dialog.open) return show();
+    if (restore) {
+      var saved = restore;
+      restore = null;
+      reopen(saved);
+    }
+  });
 })();
 </script>
 <script type="module">

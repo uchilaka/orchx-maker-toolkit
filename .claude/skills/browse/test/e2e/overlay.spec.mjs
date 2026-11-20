@@ -12,6 +12,19 @@ const transform = (page) =>
     return { scale: m.a, x: m.e, y: m.f };
   });
 
+// Panzoom animates the button zooms, so a reading taken mid-animation isn't where the
+// zoom ends up. Waits until two readings 100ms apart agree.
+async function settled(page) {
+  let last = null;
+  await expect.poll(async () => {
+    const now = (await transform(page)).scale;
+    const same = last !== null && Math.abs(now - last) < 1e-4;
+    last = now;
+    return same;
+  }, { intervals: [100] }).toBe(true);
+  return last;
+}
+
 async function open(page) {
   await page.goto("/wide.md");
   await expect(page.locator("pre.mermaid svg")).toHaveCount(2);
@@ -80,7 +93,7 @@ test("zoom buttons and the wheel zoom; reset returns to fit", async ({ page }) =
 
   const stage = await page.locator("[data-stage]").boundingBox();
   await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
-  const before = (await transform(page)).scale;
+  const before = await settled(page);
   await page.mouse.wheel(0, -400);
   await expect.poll(async () => (await transform(page)).scale).toBeGreaterThan(before);
 

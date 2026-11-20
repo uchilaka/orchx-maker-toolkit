@@ -13,6 +13,10 @@ export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.mjs",
   fullyParallel: false,
+  // One worker: serve-md tells every open page to reload when any file under the folder
+  // changes, so reload.spec.mjs saving a fixture would reload pages in other workers'
+  // tests mid-run.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
