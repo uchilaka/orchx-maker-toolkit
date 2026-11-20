@@ -71,16 +71,32 @@ const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.es
 // a diagram is first expanded, so a page that's only read never fetches it.
 const PANZOOM_URL = "https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.es.js";
 
+// null draws a divider between the export buttons and the zoom ones.
 const OVERLAY_TOOLS = [
+  ["data-copy-source", "Copy source", '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>'],
+  ["data-download", "Download SVG", '<path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/>'],
+  null,
   ["data-zoom-out data-zoom-control", "Zoom out", '<path d="M3.5 8h9"/>'],
   ["data-zoom-in data-zoom-control", "Zoom in", '<path d="M8 3.5v9M3.5 8h9"/>'],
   ["data-zoom-reset data-zoom-control", "Reset zoom", '<path d="M2.75 8a5.25 5.25 0 1 0 1.6-3.8M2.75 2.75v2.5h2.5"/>'],
+  null,
   ["data-close", "Close", '<path d="m4 4 8 8M12 4l-8 8"/>'],
 ];
 
+// Shown on Copy source for a moment once the clipboard has it.
+const CHECK_ICON = '<path d="m3.5 8.5 3 3 6-7"/>';
+
+function toolIcon(icon) {
+  return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${icon}</svg>`;
+}
+
 // One dialog per page, filled with a copy of whichever diagram was expanded.
 function overlayDialog() {
-  const tools = OVERLAY_TOOLS.map(([attrs, label, icon]) => `<button type="button" ${attrs} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${icon}</svg></button>`).join("");
+  const tools = OVERLAY_TOOLS.map((tool) => {
+    if (!tool) return '<span aria-hidden="true" class="mx-1 h-5 w-px bg-zinc-900/10 dark:bg-white/10"></span>';
+    const [attrs, label, icon] = tool;
+    return `<button type="button" ${attrs} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white">${toolIcon(icon)}</button>`;
+  }).join("");
   return `<dialog data-diagram-dialog aria-label="Diagram" class="m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-white p-0 text-zinc-900 backdrop:bg-zinc-950/60 dark:bg-zinc-950 dark:text-zinc-100">
 <div class="flex h-12 items-center justify-end gap-1 border-b border-zinc-900/10 px-3 dark:border-white/10">${tools}</div>
 <div data-stage class="absolute inset-x-0 bottom-0 top-12 overflow-hidden"><div data-zoom class="h-full w-full p-6"></div></div>
@@ -140,6 +156,11 @@ ${overlayDialog()}
 // <style> inside it (scoped by #id) still applies; the duplicates are harmless here.
 // After a theme redraw (browse:mermaid-rendered) an open overlay re-copies, keeping
 // its zoom, since Panzoom transforms the wrapper rather than the SVG.
+//
+// Copy source hands back the fence as written, from the stash browseMermaid keeps (the
+// <pre> itself holds the SVG by then). Download SVG saves the page's own SVG, not the
+// overlay's 100%-sized copy, sized to its viewBox and given the screen's background, so
+// the file opens at full size and a dark-theme diagram stays readable.
 (function () {
   var dialog = document.querySelector("[data-diagram-dialog]");
   var stage = dialog.querySelector("[data-stage]");
@@ -152,9 +173,29 @@ ${overlayDialog()}
     if (!loading) loading = import("${PANZOOM_URL}").then(function (m) { return m.default; });
     return loading;
   }
-  function show() {
+  var copyButton = dialog.querySelector("[data-copy-source]");
+  var copyIcon = copyButton.innerHTML;
+  var copyTimer = null;
+  function current() {
     var frame = document.querySelectorAll("[data-diagram]")[index];
-    var svg = frame && frame.querySelector("pre.mermaid svg");
+    return frame ? frame.querySelector("pre.mermaid") : null;
+  }
+  function relabel(button, label, icon) {
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.innerHTML = icon;
+  }
+  function resetCopy() {
+    clearTimeout(copyTimer);
+    relabel(copyButton, "Copy source", copyIcon);
+  }
+  function fileName() {
+    var page = decodeURIComponent(location.pathname.split("/").pop()).replace(/\\.(md|markdown)$/i, "");
+    return (page || "page") + "-diagram-" + (index + 1) + ".svg";
+  }
+  function show() {
+    var pre = current();
+    var svg = pre && pre.querySelector("svg");
     zoom.textContent = "";
     if (!svg) return false;
     var copy = svg.cloneNode(true);
@@ -187,12 +228,46 @@ ${overlayDialog()}
     }
     zoom.removeAttribute("style"); // Panzoom leaves its transform behind
     zoom.textContent = "";
+    resetCopy();
     index = -1;
     if (opener) opener.focus();
   });
   document.addEventListener("click", function (e) {
     var button = e.target.closest("[data-expand]");
     if (button) open(button);
+  });
+  copyButton.addEventListener("click", function () {
+    var pre = current();
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.dataset.mermaidSource).then(function () {
+      relabel(copyButton, "Copied", ${JSON.stringify(toolIcon(CHECK_ICON))});
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(resetCopy, 1500);
+    }, function (err) {
+      console.error("browse: couldn't copy the diagram source", err);
+    });
+  });
+  dialog.querySelector("[data-download]").addEventListener("click", function () {
+    var pre = current();
+    var svg = pre && pre.querySelector("svg");
+    if (!svg) return;
+    var copy = svg.cloneNode(true);
+    var box = (svg.getAttribute("viewBox") || "").split(/[\\s,]+/);
+    copy.removeAttribute("style"); // mermaid's max-width only makes sense in the column
+    if (box.length === 4) {
+      copy.setAttribute("width", box[2]);
+      copy.setAttribute("height", box[3]);
+    }
+    copy.style.backgroundColor = getComputedStyle(dialog).backgroundColor;
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(copy);
+    var url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml" }));
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = fileName();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
   });
   dialog.querySelector("[data-close]").addEventListener("click", function () { dialog.close(); });
   dialog.querySelector("[data-zoom-in]").addEventListener("click", function () { if (pz) pz.zoomIn(); });
