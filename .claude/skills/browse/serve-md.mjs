@@ -67,6 +67,26 @@ function mermaidBlock(code) {
 // pin it with an integrity check.
 const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
 
+// Pan and zoom for the full-screen overlay. Pinned the same way, and imported only when
+// a diagram is first expanded, so a page that's only read never fetches it.
+const PANZOOM_URL = "https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.es.js";
+
+const OVERLAY_TOOLS = [
+  ["data-zoom-out data-zoom-control", "Zoom out", '<path d="M3.5 8h9"/>'],
+  ["data-zoom-in data-zoom-control", "Zoom in", '<path d="M8 3.5v9M3.5 8h9"/>'],
+  ["data-zoom-reset data-zoom-control", "Reset zoom", '<path d="M2.75 8a5.25 5.25 0 1 0 1.6-3.8M2.75 2.75v2.5h2.5"/>'],
+  ["data-close", "Close", '<path d="m4 4 8 8M12 4l-8 8"/>'],
+];
+
+// One dialog per page, filled with a copy of whichever diagram was expanded.
+function overlayDialog() {
+  const tools = OVERLAY_TOOLS.map(([attrs, label, icon]) => `<button type="button" ${attrs} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${icon}</svg></button>`).join("");
+  return `<dialog data-diagram-dialog aria-label="Diagram" class="m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-white p-0 text-zinc-900 backdrop:bg-zinc-950/60 dark:bg-zinc-950 dark:text-zinc-100">
+<div class="flex h-12 items-center justify-end gap-1 border-b border-zinc-900/10 px-3 dark:border-white/10">${tools}</div>
+<div data-stage class="absolute inset-x-0 bottom-0 top-12 overflow-hidden"><div data-zoom class="h-full w-full p-6"></div></div>
+</dialog>`;
+}
+
 // The rendering logic is a plain inline script, not part of the module, so the tests
 // can run it in a stub DOM; a module importing from a CDN can't run there. The module
 // only imports mermaid and hands it over.
@@ -111,6 +131,75 @@ window.browseMermaid = function (mermaid) {
   new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ["class"] });
   return schedule();
 };
+</script>
+${overlayDialog()}
+<script data-browse-diagram-overlay>
+// The full-screen view. Expanding copies the rendered SVG into the dialog and lets it
+// fill the stage; preserveAspectRatio (meet, the default) keeps it whole, which is the
+// fitted view, and Panzoom's reset returns to it. The copy keeps mermaid's ids, so the
+// <style> inside it (scoped by #id) still applies; the duplicates are harmless here.
+// After a theme redraw (browse:mermaid-rendered) an open overlay re-copies, keeping
+// its zoom, since Panzoom transforms the wrapper rather than the SVG.
+(function () {
+  var dialog = document.querySelector("[data-diagram-dialog]");
+  var stage = dialog.querySelector("[data-stage]");
+  var zoom = dialog.querySelector("[data-zoom]");
+  var pz = null;
+  var loading = null;
+  var opener = null;
+  var index = -1;
+  function loadPanzoom() {
+    if (!loading) loading = import("${PANZOOM_URL}").then(function (m) { return m.default; });
+    return loading;
+  }
+  function show() {
+    var frame = document.querySelectorAll("[data-diagram]")[index];
+    var svg = frame && frame.querySelector("pre.mermaid svg");
+    zoom.textContent = "";
+    if (!svg) return false;
+    var copy = svg.cloneNode(true);
+    copy.removeAttribute("style");
+    copy.setAttribute("width", "100%");
+    copy.setAttribute("height", "100%");
+    zoom.appendChild(copy);
+    return true;
+  }
+  function open(button) {
+    opener = button;
+    index = [].indexOf.call(document.querySelectorAll("[data-expand]"), button);
+    if (!show()) return; // not rendered yet: nothing to show
+    dialog.showModal();
+    loadPanzoom().then(function (Panzoom) {
+      if (!dialog.open || pz) return;
+      pz = Panzoom(zoom, { minScale: 0.5, maxScale: 12, step: 0.3, cursor: "grab" });
+      stage.addEventListener("wheel", pz.zoomWithWheel);
+    }, function (err) {
+      // Offline or blocked: the fitted diagram still shows, without pan and zoom.
+      console.error("browse: pan and zoom unavailable", err);
+      [].forEach.call(dialog.querySelectorAll("[data-zoom-control]"), function (b) { b.disabled = true; });
+    });
+  }
+  dialog.addEventListener("close", function () {
+    if (pz) {
+      stage.removeEventListener("wheel", pz.zoomWithWheel);
+      pz.destroy();
+      pz = null;
+    }
+    zoom.removeAttribute("style"); // Panzoom leaves its transform behind
+    zoom.textContent = "";
+    index = -1;
+    if (opener) opener.focus();
+  });
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest("[data-expand]");
+    if (button) open(button);
+  });
+  dialog.querySelector("[data-close]").addEventListener("click", function () { dialog.close(); });
+  dialog.querySelector("[data-zoom-in]").addEventListener("click", function () { if (pz) pz.zoomIn(); });
+  dialog.querySelector("[data-zoom-out]").addEventListener("click", function () { if (pz) pz.zoomOut(); });
+  dialog.querySelector("[data-zoom-reset]").addEventListener("click", function () { if (pz) pz.reset(); });
+  window.addEventListener("browse:mermaid-rendered", function () { if (dialog.open) show(); });
+})();
 </script>
 <script type="module">
 import mermaid from "${MERMAID_URL}";
