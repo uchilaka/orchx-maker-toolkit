@@ -1,0 +1,51 @@
+name: Browse e2e
+
+# Only when /browse or this workflow changes: the suite downloads Chromium and loads
+# mermaid from a CDN, which every other PR shouldn't pay for.
+on:
+  pull_request:
+    paths:
+      - ".claude/skills/browse/**"
+      - ".github/workflows/browse-e2e.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".claude/skills/browse/**"
+      - ".github/workflows/browse-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browse-e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+# TODO(LAR-413): pin actions by commit SHA.
+jobs:
+  e2e:
+    name: Playwright (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v2
+      # Keyed on the lockfile, so a Playwright bump fetches its matching Chromium.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('.claude/skills/browse/test/e2e/package-lock.json') }}
+      # System libraries Chromium needs; not cached, since apt installs them outside ~.
+      - name: Install Chromium's system dependencies
+        working-directory: .claude/skills/browse/test/e2e
+        run: npm ci --no-audit --no-fund && npx playwright install-deps chromium
+      - run: mise run test:browse-e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: .claude/skills/browse/test/e2e/playwright-report
+          retention-days: 7

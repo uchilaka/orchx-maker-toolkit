@@ -1,0 +1,12 @@
+{
+  "name": "browse-e2e",
+  "private": true,
+  "description": "End-to-end tests for /browse in a real browser. Kept apart from the skill's node --test suite so that suite stays dependency-free.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}
