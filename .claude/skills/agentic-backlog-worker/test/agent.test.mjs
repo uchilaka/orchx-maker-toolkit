@@ -171,7 +171,7 @@ test('take: review by risk, fix rounds capped at 5, ship check labels but keeps 
   for (const s of ['/pr-review', '/live-code-review', '/pr-triage', '/pr-ship-check',
     'auth', 'secrets', '400 changed lines', 'Say which review ran and why',
     '5 fix rounds', 'ready to ship', 'agentic work', 'never mark it ready',
-    'opened by the user', 'post nothing', 'fix-now', 'hand off']) {
+    'opened by the user', 'post nothing', 'fix-now', 'hand off', 'gh label create "agentic work" --force']) {
     assert.ok(sec.includes(s), `review section mentions ${s}`);
   }
   assert.match(sec, /gh pr edit [^\n]*--add-label "ready to ship"[^\n]*--add-label "agentic work"/);

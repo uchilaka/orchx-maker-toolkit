@@ -140,7 +140,9 @@ a `/pr-ship-check` pass, with at most 5 fix rounds:
    on other kinds, list it in your plan file. Commit and push without force.
 4. **Ship check.** Run `/pr-ship-check`. On a pass, do not let it move the PR out of draft:
    label it with `gh pr edit <url> --add-label "ready to ship" --add-label "agentic work"` and
-   never mark it ready. Record the verdict in your plan file, then
+   never mark it ready. A label the repo lacks makes `gh pr edit` fail, so first run
+   `gh label create "ready to ship" --force` and `gh label create "agentic work" --force` (both
+   idempotent) in the PR's repo. Record the verdict in your plan file, then
    return `RESULT {"outcome":"pr",...}`.
 5. **Not yet?** Each ship check that fails ends one round; go back to step 3 with what it found.
    After 5 fix rounds without a pass, stop and hand off: the PR stays a draft, and the hand-off
