@@ -31,6 +31,8 @@ coverage/
 !.claude/skills/pick-model
 !.claude/skills/agentic-backlog-worker
 !.claude/skills/hand-off
+!.claude/skills/live-code-review
+!.claude/skills/pr-review
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is
