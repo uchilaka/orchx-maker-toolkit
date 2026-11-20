@@ -6,21 +6,27 @@
 // Times are Unix seconds; ABW_NOW overrides the clock for tests, and ABW_POLL_S and
 // ABW_HEARTBEAT_S shorten the two loops' intervals.
 import {
-  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync,
+  readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync, renameSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson,
+  loadConfig, stateDir, runsDir, snapshotPath, isNum, readJson, repoRulesPath,
 } from '../lib/config.mjs';
 import { readUsage, capStatus } from '../lib/usage.mjs';
 import { clean } from '../lib/sanitize.mjs';
 import {
   loadRun, saveRun, newRun, heartbeat, setTicket, loadHistory, recordCost, affordable,
-  writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES,
+  writeJsonAtomic, isoDate, runFileName, debriefPathProblem, TICKET_STATUSES, RunStateError,
 } from '../lib/run-state.mjs';
+import {
+  loadBaseline, saveBaseline, emptyBaseline, validateFetched, computeDelta, mergeVerdicts,
+  queueOrder, estimatesNeeded, reconcileDue, fetchSince,
+} from '../lib/baseline.mjs';
+import { appendRule, keyProblem, loadRules } from '../lib/repo-rules.mjs';
+import { renderTriage, triagePath } from '../lib/triage-report.mjs';
 
 const estimatesBlocked = (teams) =>
   `Turn on T-shirt estimates: Linear → Settings → Teams → ${teams.join(', ')} → Estimates`;
@@ -35,6 +41,8 @@ const BEGINNABLE = ['queued', 'capped', 'handoff'];
 // A PR url lands in a markdown link in the debrief, so it may not contain link syntax.
 const PR_URL = /^https:\/\/[^\s()<>[\]`|]+$/;
 const WINDOW_FILE = 'window.json';
+// The queue merge writes and `start --tickets` reads.
+const TRIAGE_FILE = 'triage.json';
 // Tickets that survive into the next run until worked or closed out.
 const CARRIED = ['capped', 'handoff'];
 // Tickets that keep a run unresolved, and those that get a tracker row in the debrief.
@@ -214,6 +222,16 @@ async function windowCmd(opts) {
 // .claude/skills/agentic-backlog-worker, plus its main checkout when that root is a worktree.
 // Each one and its `<checkout>-worktrees/` sibling are off-limits as ticket repos (live review
 // SEC4). Throws when the root can't be resolved, which checkRepo turns into a rejection.
+const inToolkit = (real, dir) => within(real, dir) || within(real, `${dir}-worktrees`);
+
+// True when `repo` resolves into a toolkit checkout or its worktrees. A path that doesn't resolve
+// is not the toolkit; `start`'s own checks reject it with a better message.
+function isToolkitPath(repo) {
+  let real;
+  try { real = realpathSync(repo); } catch { return false; }
+  return toolkitCheckouts().some((dir) => inToolkit(real, dir));
+}
+
 function toolkitCheckouts() {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const root = realpathSync(path.resolve(here, '..', '..', '..', '..'));
@@ -251,7 +269,7 @@ function checkRepo(id, repo, status) {
   } catch {
     fail(`${id}: cannot locate the agentic-backlog-worker toolkit checkout to exclude it`);
   }
-  if (toolkit.some((dir) => within(real, dir) || within(real, `${dir}-worktrees`))) {
+  if (toolkit.some((dir) => inToolkit(real, dir))) {
     fail(`${id}: repo is the agentic-backlog-worker toolkit checkout or one of its worktrees: ${repo}`);
   }
   // A directory, not just present: a linked worktree's .git is a file, and the ticket agent
@@ -414,6 +432,7 @@ function finish(id, opts) {
   setTicket(run, id, patch);
   heartbeat(run, t);
   saveRun(stateDir(), run);
+  const warning = markWorked(id, { status: patch.status, pr: patch.pr, runId: run.id });
   // Only a finished ticket's cost is history: a capped, handed-off or failed one stopped partway,
   // and its smaller delta would pull the p75 down until `afford` approved tickets that later
   // breach the cap (live review COR2). The delta still lands on the ticket for the debrief.
@@ -421,7 +440,7 @@ function finish(id, opts) {
   if (recorded) {
     recordCost(stateDir(), { size: ticket.size, delta5h, tokens, shared: Boolean(ticket.shared) });
   }
-  return { id, status: patch.status, delta5h, recorded };
+  return { id, status: patch.status, delta5h, recorded, ...(warning && { warning }) };
 }
 
 // Takes a not-yet-running ticket out of the queue without pretending it was worked: e.g. a
@@ -588,7 +607,234 @@ function debrief() {
     run.debriefPath = file;
     saveRun(stateDir(), run);
   }
-  return { path: file, status };
+  // The debrief is written; a bad baseline only costs the TRIAGE.md refresh.
+  let warning;
+  try {
+    const baseline = loadBaseline(stateDir());
+    if (baseline) writeTriage(baseline, loadConfig());
+  } catch (err) {
+    if (!(err instanceof RunStateError)) throw err;
+    warning = err.message;
+  }
+  return { path: file, status, ...(warning && { warning }) };
+}
+
+// --- triage baseline -------------------------------------------------------------------------
+
+// The JSON array in `file`, or a failure naming the flag it came from.
+function readJsonArg(file, flag) {
+  if (!file) fail(`${flag} <file.json> is required`);
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    return fail(`cannot read ${flag}: ${err.message}`);
+  }
+}
+
+const baselineOrEmpty = () => loadBaseline(stateDir()) ?? emptyBaseline();
+
+// Reports which fetched tickets need a verdict. Writes nothing: merge records the outcome.
+function delta(opts) {
+  let fetched;
+  try {
+    fetched = validateFetched(readJsonArg(opts.fetched, '--fetched'));
+  } catch (err) {
+    if (err instanceof CliError) throw err;
+    fail(err.message);
+  }
+  return computeDelta(baselineOrEmpty(), fetched, { reconcile: !!opts.reconcile, full: !!opts.full });
+}
+
+// Records a lasting repo answer. The repo passes the same checks `start` applies to a queued
+// ticket, so a rule can never route work somewhere `start` would refuse.
+function rule(key, repo) {
+  const problem = keyProblem(key);
+  if (problem) fail(problem);
+  const real = checkRepo(key, repo, 'queued');
+  appendRule(repoRulesPath(), key, real);
+  return { ok: true, key, repo: real };
+}
+
+const fetchedArg = (file) => {
+  if (!file) return [];
+  try {
+    return validateFetched(readJsonArg(file, '--fetched'));
+  } catch (err) {
+    if (err instanceof CliError) throw err;
+    return fail(err.message);
+  }
+};
+
+// Rewrites TRIAGE.md from the baseline, with run outcomes when a run exists. An unreadable
+// run.json is left for the status hook to report; the triage view still renders.
+function writeTriage(baseline, config) {
+  let run = null;
+  try { run = loadRun(stateDir()); } catch { /* reported by the status hook */ }
+  // Temp file plus rename: the rename replaces whatever sits at the path, a planted symlink
+  // included, instead of writing through it (the debrief path gets the same care).
+  const file = triagePath();
+  const dir = path.dirname(file);
+  mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.tmp`);
+  try {
+    writeFileSync(tmp, renderTriage({ baseline, run, themeOrder: config.theme_order }));
+    renameSync(tmp, file);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch { /* temp may not exist */ }
+    throw err;
+  }
+  return file;
+}
+
+// Why `start` would refuse `repo`, or null. checkRepo reports through fail(); this turns that
+// into a value so merge can demote the ticket instead of failing.
+function repoProblem(repo) {
+  try {
+    checkRepo('repo', repo, 'queued');
+    return null;
+  } catch (err) {
+    if (err instanceof CliError) return err.message.replace(/^repo: /, '');
+    throw err;
+  }
+}
+
+const countBy = (list) => list.reduce((acc, t) => ({ ...acc, [t.status]: (acc[t.status] ?? 0) + 1 }), {});
+
+// Folds this invocation's verdicts into the baseline and writes the queue `start` reads. The
+// queue goes through validateTickets before anything is saved, so a merge never leaves a queue
+// that `start` would reject. With no files, it only re-applies the repo rules.
+function merge(opts) {
+  const t = now();
+  const config = loadConfig();
+  const prev = loadBaseline(stateDir());
+  const verdicts = opts.verdicts ? readJsonArg(opts.verdicts, '--verdicts') : [];
+  if (!Array.isArray(verdicts)) fail('--verdicts must be a JSON array');
+  let next;
+  try {
+    if (opts.seed) {
+      if (prev) fail('a baseline already exists; seeding would overwrite it');
+      next = seed(t, verdicts);
+    } else {
+      // The fetch ran when fetched.json was written; a merge without one fetched nothing new.
+      const stampAt = opts.fetched
+        ? Math.min(t, Math.floor(statSync(opts.fetched).mtimeMs / 1000))
+        : (prev?.triagedAt ?? t);
+      next = mergeVerdicts(prev ?? emptyBaseline(), fetchedArg(opts.fetched), verdicts, {
+        rules: loadRules(repoRulesPath()), now: t, reconcile: !!opts.reconcile,
+        isToolkitRepo: isToolkitPath, repoProblem, stampAt,
+      });
+    }
+  } catch (err) {
+    if (err instanceof CliError) throw err;
+    fail(err.message);
+  }
+  const queue = validateTickets(queueOrder(next, config.theme_order));
+  saveBaseline(stateDir(), next);
+  writeJsonAtomic(stateDir(), TRIAGE_FILE, queue);
+  const report = writeTriage(next, config);
+  const needsRepo = {};
+  for (const e of queue.filter((q) => q.status === 'needs-repo')) {
+    (needsRepo[e.theme ?? 'other'] ??= []).push(e.id);
+  }
+  return {
+    tickets: queue.length, counts: countBy(queue), estimates: estimatesNeeded(next), needsRepo,
+    unjudged: next.lastDelta?.unjudged ?? [],
+    queue: path.join(stateDir(), TRIAGE_FILE), triagePath: report,
+  };
+}
+
+// A first baseline from an existing triage.json (no Linear stamps yet): see seedMatch. It has no
+// reconcile, so the next invocation does a full listing and fills in updatedAt.
+// TODO(LAR-507): replace the fake fetch with a seedBaseline(verdicts, now) in lib/baseline.mjs.
+function seed(t, verdicts) {
+  const fake = verdicts.map((v) => ({
+    id: v?.id, title: v?.title, statusType: 'backlog', labels: [], project: null, parentId: null,
+    updatedAt: 'seed', estimate: null,
+  }));
+  const b = mergeVerdicts(emptyBaseline(), validateFetched(fake), verdicts, {
+    rules: loadRules(repoRulesPath()), now: t, isToolkitRepo: isToolkitPath,
+  });
+  for (const tk of Object.values(b.tickets)) tk.updatedAt = null;
+  return { ...b, reconciledAt: null, lastDelta: null };
+}
+
+// A worked ticket stays out of the queue and out of reclassification (computeDelta): the ticket
+// agent edits it in Linear, and that is not a change of scope. No baseline, nothing to mark.
+// The run is already saved when this runs, so a bad baseline must not fail `finish` halfway:
+// it comes back as a warning.
+function markWorked(id, worked) {
+  let b;
+  try {
+    b = loadBaseline(stateDir());
+  } catch (err) {
+    if (err instanceof RunStateError) return err.message;
+    throw err;
+  }
+  if (!b?.tickets[id]) return null;
+  b.tickets[id].worked = Object.fromEntries(Object.entries(worked).filter(([, v]) => v !== undefined));
+  saveBaseline(stateDir(), b);
+  return null;
+}
+
+// Records Linear's updatedAt (and estimate) after this skill's own writes, such as estimate
+// write-back, so the next delta doesn't take them for a change. All or nothing.
+function touched(opts) {
+  const list = readJsonArg(opts.file, '--file');
+  if (!Array.isArray(list)) fail('--file must be a JSON array');
+  const b = loadBaseline(stateDir());
+  if (!b) fail('no baseline to update');
+  for (const [i, e] of list.entries()) {
+    if (!e || typeof e.id !== 'string' || !b.tickets[e.id]) fail(`touched[${i}]: unknown ticket ${e?.id}`);
+    if (typeof e.updatedAt !== 'string' || e.updatedAt === '') fail(`${e.id}: updatedAt must be a string`);
+  }
+  for (const e of list) {
+    const tk = b.tickets[e.id];
+    tk.updatedAt = e.updatedAt;
+    if (e.estimate !== undefined) {
+      // TODO(LAR-507): use the shared flatEstimate() from lib/baseline.mjs.
+      const est = e.estimate;
+      tk.estimate = typeof est === 'number' ? est : (typeof est?.value === 'number' ? est.value : null);
+    }
+  }
+  saveBaseline(stateDir(), b);
+  return { touched: list.length };
+}
+
+// What step 1 needs to know before anything else: whether a baseline exists, whether the next
+// fetch is incremental or a reconcile, and what's waiting on Uche. Every string is cleaned: this
+// JSON is read straight into the orchestrator's context.
+function brief() {
+  const t = now();
+  const config = loadConfig();
+  const b = loadBaseline(stateDir());
+  let run = null;
+  try { run = loadRun(stateDir()); } catch { /* step 1's run.json read reports it */ }
+  const of = (st) => (run?.tickets ?? []).filter((tk) => tk.status === st);
+  const cleanIds = (list) => list.map((id) => clean(id));
+  const queue = b ? queueOrder(b, config.theme_order) : [];
+  const needsRepo = {};
+  for (const e of queue.filter((q) => q.status === 'needs-repo')) {
+    (needsRepo[clean(e.theme ?? 'other')] ??= []).push(clean(e.id));
+  }
+  return {
+    baseline: !!b,
+    triagedAt: b?.triagedAt ?? null,
+    reconcileDue: b ? reconcileDue(b, t, config.full_triage_after_days) : true,
+    fetchSince: b ? fetchSince(b) : null,
+    lastDelta: b?.lastDelta
+      ? Object.fromEntries(Object.entries(b.lastDelta).map(([k, v]) => [k, cleanIds(v)]))
+      : null,
+    waiting: {
+      prs: of('pr').map((tk) => ({ id: clean(tk.id), pr: clean(tk.pr) })),
+      handoffs: of('handoff').map((tk) => ({ id: clean(tk.id), reason: clean(tk.reason) })),
+      capped: cleanIds(of('capped').map((tk) => tk.id)),
+      needsRepo,
+    },
+    nextUp: queue.filter((q) => q.status === 'queued').slice(0, 10)
+      .map((q) => ({ id: clean(q.id), size: q.size, repo: clean(path.basename(q.repo)) })),
+    counts: countBy(queue),
+    triagePath: triagePath(),
+  };
 }
 
 // --- dispatch --------------------------------------------------------------------------------
@@ -606,9 +852,15 @@ async function main(argv) {
       deadline: { type: 'string' },
       wait: { type: 'boolean' },
       loop: { type: 'boolean' },
+      fetched: { type: 'string' },
+      reconcile: { type: 'boolean' },
+      full: { type: 'boolean' },
+      verdicts: { type: 'string' },
+      seed: { type: 'boolean' },
+      file: { type: 'string' },
     },
   });
-  const [cmd, arg] = positionals;
+  const [cmd, arg, arg2] = positionals;
   switch (cmd) {
     case 'preflight': return preflight(opts);
     case 'set-reset': return setReset(arg);
@@ -622,6 +874,11 @@ async function main(argv) {
     case 'stop': return stop(opts);
     case 'close-out': return closeOut();
     case 'debrief': return debrief();
+    case 'delta': return delta(opts);
+    case 'rule': return rule(arg, arg2);
+    case 'merge': return merge(opts);
+    case 'touched': return touched(opts);
+    case 'brief': return brief();
     default: return fail(`unknown command: ${cmd ?? '(none)'}`);
   }
 }

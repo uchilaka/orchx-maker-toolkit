@@ -31,7 +31,8 @@ and expand it yourself in Write tool paths.
   or comments to a PR. Do not invoke `superpowers:finishing-a-development-branch`.
 - **One-line events.** Each ticket event is a single plain line starting `abw:`, so the run
   reads well on a phone through Remote Control.
-- `--dry-run` runs steps 1 to 4 only (see step 4).
+- `--dry-run` runs steps 1 to 4 only (see step 4). `--full` reclassifies every ticket in step 3,
+  for example after the eligibility rules change.
 
 ## Requirements
 
@@ -45,7 +46,17 @@ and expand it yourself in Write tool paths.
 
 ### 1. Resume
 
-Read the state, if any:
+First, what the last invocation left behind:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" brief
+```
+
+Print at most 5 lines from it: draft PRs waiting on review, hand-offs, needs-repo groups, and the
+next few queued tickets. Keep `baseline`, `reconcileDue` and `fetchSince` for step 3. The human
+view of the same thing is `triagePath` (`TRIAGE.md`); never read that file back in.
+
+Then read the run state, if any:
 
 ```bash
 STATE=~/.claude/state/agentic-backlog-worker; jq '{id, active, heartbeatAt,
@@ -92,16 +103,37 @@ inactive), skip step 7's `stop` so its tickets stay where they are. Otherwise fi
 
 <!-- TODO(LAR-481): triage only tickets and comments from trusted authors. -->
 
-1. For each team in `config.teams`, call `mcp__linear__list_issues` for its unstarted backlog
-   (Backlog and Todo). Follow `cursor` while `hasNextPage` is true; never assume one page is
-   all of it.
-2. List the candidate repos once. Only these can be a ticket's repo:
+Triage starts from the baseline: only tickets that are new or changed since the last
+invocation get a verdict. `worker.mjs` keeps the verdicts (`$STATE/baseline.json`), the repo
+answers (`~/.config/agentic-backlog-worker/repo-rules.yml`) and `TRIAGE.md`; never edit those
+files yourself.
+
+1. **Fetch.** For each team in `config.teams`, call `mcp__linear__list_issues` with
+   `fields: [id, title, status, statusType, labels, project, parentId, updatedAt, estimate]` (no
+   descriptions). Follow `cursor` while `hasNextPage` is true; never assume one page is all of it.
+   - **No baseline, `reconcileDue: true`, or `--full`:** list every Backlog and Todo ticket.
+   - **Otherwise:** list tickets of every state with `updatedAt: <fetchSince>`, so tickets that
+     left the backlog show up too.
+
+   Write the combined list with the Write tool to `$STATE/fetched.json`: a JSON array of those
+   fields, with `statusType` as Linear gives it. Write it as soon as the fetch ends and don't rewrite it later:
+   its modification time is when the next incremental fetch starts.
+2. **Delta.** Add `--reconcile` when step 1 listed the whole backlog and `--full` when asked:
+
+   ```bash
+   STATE=~/.claude/state/agentic-backlog-worker
+   node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" delta --fetched "$STATE/fetched.json" --reconcile
+   ```
+
+   Only the `classify` ids need a verdict; `removed` and `unchanged` need nothing.
+3. List the candidate repos once. Only these can be a ticket's repo:
 
    ```bash
    find /opt/Developer -maxdepth 3 -name .git -not -path '*-worktrees/*' | sed 's|/.git$||'
    ```
 
-3. Classify every ticket by the design's rules, and give each a size: S, M, L or XL.
+4. Classify each `classify` ticket by the design's rules (`mcp__linear__get_issue` when you need
+   its description), and give each a size: S, M, L or XL.
    - **Eligible** (`queued`): a code-and-tests change, inside one inferable repo, sized S or M.
    - **Ineligible** (`skipped`, with a short `reason`): it touches live hosts, SSH, firewall,
      DNS or secret rotation; it makes paid external calls; it has the `Spike` label; it carries
@@ -109,27 +141,47 @@ inactive), skip step 7's `stop` so its tickets stay where they are. Otherwise fi
    - **Needs repo** (`needs-repo`, `repo: null`): otherwise eligible, but the repo cannot be
      inferred with confidence from the project, the title prefix and the paths mentioned,
      against the list above. Never drop these silently, and never guess.
-   - Give each queued ticket a short `theme`, for grouping in step 4.
-4. **Estimate write-back**, also on `--dry-run`. Linear's T-shirt scale stores numbers:
-   S=2, M=3, L=5, XL=8.
-   - On the first eligible ticket, call `mcp__linear__save_issue` with its `id` and that
-     `estimate`. Then read it back with `mcp__linear__get_issue`.
+   - Give each queued and needs-repo ticket a short `theme`, for grouping in step 4. Queue order
+     follows `config.theme_order`.
+
+   Write the verdicts with the Write tool to `$STATE/verdicts.json`: a JSON array of
+   `{id, title, size, repo, status, theme?, reason?}`. `repo` is an absolute path from the list
+   above, or `null` for `skipped` and `needs-repo`.
+5. **Merge.** Same `--reconcile` as step 2:
+
+   ```bash
+   STATE=~/.claude/state/agentic-backlog-worker
+   node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" merge --fetched "$STATE/fetched.json" \
+     --verdicts "$STATE/verdicts.json" --reconcile
+   ```
+
+   It writes `$STATE/triage.json` for `start` and rewrites `TRIAGE.md`. Repo rules already
+   answer some needs-repo tickets, and a ticket in this toolkit's own repo comes back `skipped`,
+   since `start` refuses it. Keep `estimates`, `needsRepo`, `counts` and `triagePath`.
+   A non-empty `unjudged` lists `classify` ids you gave no verdict: classify them and merge
+   again. Until then they keep their old verdict, and the next delta lists them again.
+6. **Estimate write-back**, also on `--dry-run`, only for the tickets in `merge.estimates`
+   (their Linear estimate is blank; an existing estimate is never overwritten). Linear's
+   T-shirt scale stores `points`: S=2, M=3, L=5, XL=8.
+   - On the first one, call `mcp__linear__save_issue` with its `id` and `estimate: <points>`.
+     Then read it back with `mcp__linear__get_issue`.
    - If the write is rejected, or the stored estimate is missing or different, write no more
      estimates. Run `worker.mjs preflight --linear-estimates=disabled` and keep its
      `estimatesBlocked` line for the kick-off message. Do not fall back to labels.
-   - If it matches, write the estimate on every other triaged ticket the same way.
-5. Write the triage with the Write tool to `$STATE/triage.json`:
-   a JSON array, in queue order, of `{id, title, size, repo, status, theme?, reason?}`. `repo`
-   is an absolute path from the list above, or `null` for `skipped` and `needs-repo`; `start`
-   rejects anything else.
+   - If it matches, write the rest the same way.
+   - From each `save_issue` response, collect `{id, updatedAt, estimate}` into
+     `$STATE/touched.json` (Write tool), then run
+     `worker.mjs touched --file "$STATE/touched.json"`. Without it, the next delta would take
+     your own writes for changes.
 
 ### 4. Kick-off message
 
 Send one message:
 
-- the queue, grouped by theme: `LAR-N title (S) repo`;
-- the "needs repo" tickets, asking which repo each belongs to;
-- a one-line count of skipped tickets by reason;
+- what changed: the `classify` count, how many came back queued, needs-repo or skipped, and
+  the `removed` ids;
+- the next 10 queued tickets: `LAR-N title (S) repo`, and `triagePath` for the full queue;
+- the needs-repo groups from `merge.needsRepo`, asking which repo each group belongs to;
 - whether estimates were written back to Linear (they are, even on `--dry-run`), or the
   `estimatesBlocked` line;
 - **only when the order is unclear**, one request for prioritization *guidelines* (for example
@@ -137,8 +189,23 @@ Send one message:
 - the reminder: "Turn on Remote Control with `/remote-control` to follow along from your
   phone. I can't enable it myself."
 
-If you asked anything, wait for my answer, apply it (re-order, and move answered needs-repo
-tickets to `queued` with their repo), and rewrite `triage.json`. Then:
+If you asked anything, wait for my answer and apply it:
+
+- **A repo answer:** record it once, for a whole Linear project or one ticket, then re-apply
+  the rules with a bare merge (no files):
+
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" rule "project/<Linear project name>" <repo>
+  node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" rule ticket/LAR-123 <repo>
+  node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" merge
+  ```
+
+  Write any new estimates that merge's `estimates` now lists (step 3.6).
+- **A prioritization guideline:** set `theme_order` in
+  `~/.config/agentic-backlog-worker/config.yml` only when I say it should last; otherwise
+  re-classify the affected themes and merge again.
+
+Then:
 
 ```bash
 STATE=~/.claude/state/agentic-backlog-worker
@@ -242,7 +309,8 @@ came back `capped`; no eligible tickets are left; a preflight or window failure.
 1. Wait until every in-flight agent has returned and been recorded (step 6), then
    `worker.mjs stop --reason "<reason>"`. A late notification for a ticket that is no longer
    `running` is ignored: no `finish`.
-2. `worker.mjs debrief`. It rewrites `~/project-plans/agentic-backlog-worker/RUN_<date>.md`.
+2. `worker.mjs debrief`. It rewrites `~/project-plans/agentic-backlog-worker/RUN_<date>.md`,
+   and `TRIAGE.md` beside it with this run's outcomes.
 3. Print one line: `abw: stopped (<reason>): <n> draft PRs, <n> hand-offs, run file <path>`.
 
 PRs stay drafts for me to review. Capped and handed-off tickets are picked up by step 1 of the
