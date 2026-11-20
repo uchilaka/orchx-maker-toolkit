@@ -29,9 +29,10 @@ check "capture root exists"                        test -d "$CAPTURE_ROOT"
 check "profile dir exists"                         test -d "$PROFILE_DIR"
 
 # A profile can only be open in one Chrome process. If a manual login session
-# is still running against it, the MCP launch will fail on the profile lock.
+# or a previous run's test browser is still holding it, the MCP launch fails on
+# the profile lock, and macOS keeps sending terminal links to that browser.
 if pgrep -f -- "--user-data-dir=$PROFILE_DIR" >/dev/null 2>&1; then
-  echo "WARN  test profile is open in a running Chrome; quit it before the MCP launches"
+  echo "WARN  test profile is open in a running Chrome; quit it or run scripts/close-test-browser.sh"
 fi
 
 exit "$fail"

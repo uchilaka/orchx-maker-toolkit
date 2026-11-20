@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`browser-test-assist`** now closes the test browser at the end of every session, using the new `scripts/close-test-browser.sh`. A test browser left running was the oldest Chrome instance, so macOS sent every link opened from the terminal, `/browse` included, to it rather than to the user's own Chrome. The script stops only the main process for the test profile. `check-setup.sh` points at it when that profile is still open.
+
 ### Changed
 - **`live-code-review` and `pr-review`** now live in this repo under `.claude/skills/`, instead of only in `~/.claude/skills/`, so changes to them can be reviewed and tested here. Their behavior is unchanged. They stay out of `marketplace.json` because they depend on the maintainer's own setup (`~/pr-reviews/`, `~/CLAUDE.md`, the LAR Linear team, loose review agents); install them with `mise run install:claude-global live-code-review pr-review`. ([#46](https://github.com/uchilaka/orchx-maker-toolkit/pull/46))
 
