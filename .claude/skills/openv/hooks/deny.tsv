@@ -1,0 +1,21 @@
+# Commands that put a Proton Pass value in front of the agent. One row per
+# pattern: <pattern><TAB><reason>. A pattern is either words, matched as a
+# command anywhere in the line (after ;, &&, |, $( or a quote, with any path
+# before the first word), or a --flag, matched anywhere in a line that names
+# openv, pass-cli or pass://.
+#
+# Read by hooks/guard-secrets.sh and by test/guard.test.mjs, which generates
+# its deny cases from these rows. The permissions.deny (S12) and OpenCode (S16)
+# snippets are generated from it too, so edit the list here only.
+openv export	prints resolved values for your shell; run it in your own terminal, not here
+pass-cli item view	prints an item's values
+pass-cli item totp	prints TOTP codes
+pass-cli item attachment download	writes an attachment's contents
+pass-cli totp	prints TOTP codes
+pass-cli inject	renders a template with the values filled in
+pass-cli export	exports vault contents
+pass-cli personal-access-token	creates or prints an access token
+pass-cli agent create	prints a new agent token
+pass-cli agent renew	prints a renewed agent token
+--no-masking	turns off pass-cli's masking of values in output
+--show-secrets	adds values to pass-cli's listing output
