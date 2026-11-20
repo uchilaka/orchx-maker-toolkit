@@ -47,8 +47,17 @@ function statusBadge(status) {
   return `<span class="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${cls}">${escapeHtml(status)}</span>`;
 }
 
+// The frame scrolls a wide diagram sideways in an inner box, so the expand button,
+// pinned to the outer one, stays in its corner. The button is invisible until the
+// diagram is hovered or the button has keyboard focus; where nothing can hover
+// (touch screens) it's always shown.
+const EXPAND_ICON = '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/>';
+
 function mermaidBlock(code) {
-  return `<div class="not-prose my-6 overflow-x-auto rounded-xl p-4 ring-1 ring-zinc-900/10 dark:ring-white/10"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>`;
+  return `<div data-diagram class="not-prose group relative my-6 rounded-xl ring-1 ring-zinc-900/10 dark:ring-white/10">
+<div data-diagram-scroll class="overflow-x-auto p-4"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>
+<button type="button" data-expand aria-label="Expand diagram" title="Expand diagram" class="absolute right-2 top-2 rounded-md bg-white/90 p-1.5 text-zinc-500 opacity-0 ring-1 ring-zinc-900/10 transition hover:text-zinc-900 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 dark:bg-zinc-900/90 dark:text-zinc-400 dark:ring-white/10 dark:hover:text-white"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${EXPAND_ICON}</svg></button>
+</div>`;
 }
 
 // Pinned like the Tailwind CDN. Loaded only on pages with a diagram. Live reload is a

@@ -26,6 +26,7 @@ describe("Tailwind 3.4 compile", { skip: !available && `no tailwindcss in ${TW_D
       await renderIndex(tree.plans, dirCrumbs("", tree.plans), "/"),
       notFoundPage(),
       htmlPage("x", "", []),
+      docPage("diagram", "```mermaid\nflowchart LR\n  A --> B\n```", []),
     ];
     writeFileSync(join(dir, "pages.html"), pages.join("\n"));
     writeFileSync(join(dir, "in.css"), "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n");
@@ -60,6 +61,9 @@ describe("Tailwind 3.4 compile", { skip: !available && `no tailwindcss in ${TW_D
     ["prose code backticks removed", /prose-code\\:before\\:content-none/],
     ["arbitrary grid columns", /grid-cols-\\\[minmax\\\(0\\2c 1fr\\\)_15rem\\\]/],
     ["size-* utilities (3.4+)", /\.size-4 \{/],
+    ["diagram expand button, via its group", /\.group:hover \.group-hover\\:opacity-100/],
+    ["expand button on keyboard focus", /\.focus-visible\\:opacity-100:focus-visible/],
+    ["expand button where nothing hovers", /@media ?\(hover:none\) ?\{\s*\.\\\[\\@media\\\(hover\\:none\\\)\\\]\\:opacity-100 \{\s*opacity: 1/],
   ]) {
     test(label, () => assert.match(css, selector));
   }
