@@ -35,6 +35,7 @@ test('DEFAULTS carry the documented values and are frozen', () => {
     snapshot_max_age_min: 15, cost_prior_s: 5, cost_prior_m: 12,
     full_triage_after_days: 14,
     theme_order: ['bugs', 'security', 'ci-pinning', 'chores', 'cleanups', 'tests', 'features'],
+    denied_repos: [],
   });
   assert.ok(Object.isFrozen(DEFAULTS));
 });
@@ -107,4 +108,15 @@ test('full_triage_after_days and theme_order parse and validate', () => {
   assert.deepStrictEqual([cfg.full_triage_after_days, cfg.theme_order], [7, ['tests', 'bugs']]);
   assert.throws(() => loadConfig(write('full_triage_after_days: 0\n')), /full_triage_after_days/);
   assert.throws(() => loadConfig(write('theme_order: []\n')), /theme_order/);
+});
+
+test('denied_repos: an inline list of absolute paths parses; an empty list is allowed', () => {
+  assert.deepStrictEqual(loadConfig(write('denied_repos: [/opt/a, /opt/b]\n')).denied_repos,
+    ['/opt/a', '/opt/b']);
+  assert.deepStrictEqual(loadConfig(write('denied_repos: []\n')).denied_repos, []);
+});
+
+test('denied_repos: a relative path throws', () => {
+  assert.throws(() => loadConfig(write('denied_repos: [/opt/a, cami]\n')),
+    /denied_repos must list absolute paths/);
 });
