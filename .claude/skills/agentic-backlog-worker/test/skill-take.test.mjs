@@ -21,3 +21,10 @@ test('take mode: the item file, its kinds, the goal, and the steps it skips', ()
     assert.ok(sec.includes(s), `take section mentions ${s}`);
   }
 });
+
+test('take mode: the run ends only after review and a ship check, at most 5 fix rounds', () => {
+  const sec = skill.split('## Take mode')[1]?.split('\n## ')[0];
+  for (const s of ['Review until it ships', '5 fix rounds', 'ready to ship', 'agentic work', 'stays a draft']) {
+    assert.ok(sec.includes(s), `take section mentions ${s}`);
+  }
+});

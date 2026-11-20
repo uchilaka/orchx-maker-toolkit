@@ -122,6 +122,33 @@ Linear steps only for `ticket`: procedure step 7 and hand-off steps 3 and 4 appl
 take, and are skipped for the other kinds. Their hand-off is the checkpoint in your plan file,
 and for a `plan` take a dated note under the source plan's tracker.
 
+## Review until it ships
+
+A take does not end at the draft PR. Before returning `RESULT {"outcome":"pr"}`, drive the PR to
+a `/pr-ship-check` pass, with at most 5 fix rounds:
+
+1. **Review once, picked by risk.** Run `/live-code-review` when the diff touches auth,
+   authorization, secrets, input handling, queries, endpoints, uploads, CI workflows or
+   infrastructure (compose, Traefik, DNS, Tailscale), or is over about 400 changed lines.
+   Otherwise run `/pr-review`. Say which review ran and why in your plan file.
+2. **Posting.** On a PR opened by the user, the review may post its findings and `/pr-triage`
+   may reply on threads, as both do by default on the user's own work. On anyone else's PR,
+   post nothing: save the review locally and keep planned replies in your plan file.
+3. **Fix round.** Address the review's fix-now findings with `/pr-triage`, using judgement: verify
+   each finding against the current code before changing anything, and leave invalid ones with
+   a reason. A deferred finding on a ticket take becomes a Linear ticket as `/pr-triage` says;
+   on other kinds, list it in your plan file. Commit and push without force.
+4. **Ship check.** Run `/pr-ship-check`. On a pass, do not let it move the PR out of draft:
+   label it with `gh pr edit <url> --add-label "ready to ship" --add-label "agentic work"` and
+   never mark it ready. Record the verdict in your plan file, then
+   return `RESULT {"outcome":"pr",...}`.
+5. **Not yet?** Each ship check that fails ends one round; go back to step 3 with what it found.
+   After 5 fix rounds without a pass, stop and hand off: the PR stays a draft, and the hand-off
+   lists the open findings and the last ship-check verdict.
+
+A capped stop mid-loop is a normal capped checkpoint: record the round number in your plan file
+so the next run resumes the loop there rather than reviewing from scratch.
+
 ## Hand off instead of guessing
 
 Hand off when:

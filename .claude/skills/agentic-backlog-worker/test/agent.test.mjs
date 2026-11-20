@@ -161,3 +161,19 @@ test('capped section: every commit and push carries --no-verify and uses -C', ()
     assert.match(c, /^`git -C <worktree> (commit|push) --no-verify /, c);
   }
 });
+
+// A take is reviewed and driven to a ship-check pass before it ends (decided 2026-11-20):
+// review picked by risk, at most 5 fix rounds, own-PR-only posting, and a pass labels the PR
+// but never takes it out of draft.
+test('take: review by risk, fix rounds capped at 5, ship check labels but keeps the draft', () => {
+  const sec = text.split('## Review until it ships')[1]?.split('\n## ')[0];
+  assert.ok(sec, 'agent has a "## Review until it ships" section');
+  for (const s of ['/pr-review', '/live-code-review', '/pr-triage', '/pr-ship-check',
+    'auth', 'secrets', '400 changed lines', 'Say which review ran and why',
+    '5 fix rounds', 'ready to ship', 'agentic work', 'never mark it ready',
+    'opened by the user', 'post nothing', 'fix-now', 'hand off']) {
+    assert.ok(sec.includes(s), `review section mentions ${s}`);
+  }
+  assert.match(sec, /gh pr edit [^\n]*--add-label "ready to ship"[^\n]*--add-label "agentic work"/);
+  assert.doesNotMatch(sec, /gh pr ready/, 'never runs gh pr ready');
+});

@@ -364,5 +364,10 @@ draft PR (for a `pr` take, the existing PR updated), never a merge.
    ```
 
    A carried ticket in this run is never begun.
+
+   The agent's work on a take ends with its **Review until it ships** section: one review
+   picked by risk, then at most 5 fix rounds until `/pr-ship-check` passes. A pass labels the
+   PR `ready to ship` and `agentic work`, and it stays a draft; marking it ready is mine. After
+   5 fix rounds without a pass, the take comes back as a hand-off.
 7. **Stop** with reason `take done`, or the reason step 7 gives, and debrief as step 7 says.
    Print `abw: take <id> <outcome>: <PR url or reason>, run file <path>`.
