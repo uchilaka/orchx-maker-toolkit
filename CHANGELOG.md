@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`/agentic-backlog-worker take`** works one specific item you hand over (a Linear ticket, a plan file, a PR, or a hand-off prompt) toward a goal you set, and lands it as a draft PR, or as new commits on the PR for a `pr` take. It skips triage and keeps the window, cap and guard rules. New `worker.mjs take --item <file>` makes a one-item run; non-Linear items get `HO-<n>` ids so the usage guard's branch, worktree and checkpoint rules hold unchanged. Open work from an earlier run is carried, but not worked. A take ends only after one review (`/live-code-review` for risky or large diffs, `/pr-review` otherwise) and up to 5 `/pr-triage` fix rounds until `/pr-ship-check` passes. A pass labels the PR `ready to ship` and `agentic work` and leaves it a draft. After 5 rounds without a pass it comes back as a hand-off.
+
 ### Changed
 - **`live-code-review` and `pr-review`** now live in this repo under `.claude/skills/`, instead of only in `~/.claude/skills/`, so changes to them can be reviewed and tested here. Their behavior is unchanged. They stay out of `marketplace.json` because they depend on the maintainer's own setup (`~/pr-reviews/`, `~/CLAUDE.md`, the LAR Linear team, loose review agents); install them with `mise run install:claude-global live-code-review pr-review`. ([#46](https://github.com/uchilaka/orchx-maker-toolkit/pull/46))
 
