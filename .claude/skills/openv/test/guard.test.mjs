@@ -27,6 +27,7 @@ const DENY = DENY_RAW.split('\n')
     return { pattern, reason };
   });
 const REAL_JQ = spawnSync('bash', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+// TODO(LAR-529): run the tables under /bin/bash 3.2 as well as PATH bash.
 // Absolute, so a test can give the guard a PATH that holds only shims.
 const BASH = spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).stdout.trim();
 

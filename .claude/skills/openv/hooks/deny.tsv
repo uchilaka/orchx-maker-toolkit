@@ -1,5 +1,8 @@
 # Commands that put a Proton Pass value in front of the agent.
 #
+# TODO(LAR-526): decide whether access-changing commands (item/vault share,
+# agent access grant, ssh-agent, password generate) belong here too.
+#
 # This header is the format contract. hooks/guard.jq, test/guard.test.mjs and
 # the permissions.deny (S12) and OpenCode (S16) snippet generators all read the
 # file this way, so edit the list here only.

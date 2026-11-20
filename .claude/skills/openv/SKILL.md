@@ -27,6 +27,8 @@ a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value in
 `openv run`, or get past `export`'s checks. The real boundary is the agent having no
 `pass-cli` login of its own.
 
+<!-- TODO(LAR-527): say masking covers stdout/stderr and whole values only (files, partial values). -->
+
 ## Requirements
 
 - `bash` (3.2, the macOS default, or later) and `git`.

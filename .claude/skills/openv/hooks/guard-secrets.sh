@@ -6,6 +6,8 @@
 # Exit 0 allows the command and exit 2 blocks it; Claude Code shows stderr to
 # the agent. Any other exit lets the command through, which is why there's no
 # `set -e` here: every failure path exits 2 on purpose.
+# TODO(LAR-528): S7 must test the installed hook command, since a wrong
+# script path exits 127 and fails open.
 #
 # Advisory, not a sandbox: a command built at runtime (variables, eval, base64)
 # gets past any text match. openv export's own CLAUDECODE/TTY refusal is the
