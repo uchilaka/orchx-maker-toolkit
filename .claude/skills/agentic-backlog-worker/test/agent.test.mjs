@@ -171,9 +171,13 @@ test('take: review by risk, fix rounds capped at 5, ship check labels but keeps 
   for (const s of ['/pr-review', '/live-code-review', '/pr-triage', '/pr-ship-check',
     'auth', 'secrets', '400 changed lines', 'Say which review ran and why',
     '5 fix rounds', 'ready to ship', 'agentic work', 'never mark it ready',
-    'opened by the user', 'post nothing', 'fix-now', 'hand off', 'gh label create "agentic work" --force']) {
+    'opened by the user', 'post nothing', 'fix-now', 'hand off']) {
     assert.ok(sec.includes(s), `review section mentions ${s}`);
   }
   assert.match(sec, /gh pr edit [^\n]*--add-label "ready to ship"[^\n]*--add-label "agentic work"/);
+  // --force recolors an existing label at random (no --color given), so create only when missing.
+  assert.match(sec, /gh label create "ready to ship" 2>\/dev\/null \|\| true/);
+  assert.match(sec, /gh label create "agentic work" 2>\/dev\/null \|\| true/);
+  assert.doesNotMatch(sec, /gh label create[^\n`]*--force/);
   assert.doesNotMatch(sec, /gh pr ready/, 'never runs gh pr ready');
 });

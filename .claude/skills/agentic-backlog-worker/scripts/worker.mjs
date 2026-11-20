@@ -375,7 +375,11 @@ function takeRef(kind, ref) {
     if (!path.isAbsolute(ref) || !ref.endsWith('.md')) fail('plan ref must be an absolute path to a .md file');
     readableFile(ref, kind);
   }
-  if (kind === 'prompt') readableFile(ref, kind);
+  if (kind === 'prompt') {
+    readableFile(ref, kind);
+    // The ticket agent reads it from another cwd, so a relative path would not resolve there.
+    return path.resolve(ref);
+  }
   return ref;
 }
 

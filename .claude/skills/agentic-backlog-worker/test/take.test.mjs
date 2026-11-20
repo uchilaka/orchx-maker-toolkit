@@ -149,3 +149,22 @@ test('take: the item runs through begin and finish like a ticket', () => {
   assert.strictEqual(f.code, 0, f.out);
   assert.strictEqual(box.runJson().tickets[0].status, 'pr');
 });
+
+test('take: a relative prompt ref is stored as an absolute path, since the agent runs elsewhere', () => {
+  const box = sandbox();
+  const rel = path.relative(process.cwd(), box.prompt);
+  const r = box.run(['take', '--item', box.item({ kind: 'prompt', ref: rel })]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(box.takeJson('HO-1').ref, box.prompt);
+  assert.strictEqual(box.runJson().tickets[0].take.ref, box.prompt);
+});
+
+test('take: a carried take keeps its kind, ref and goal, so a later run can resume it', () => {
+  const box = sandbox();
+  assert.strictEqual(box.run(['take', '--item', box.item()]).code, 0);
+  assert.strictEqual(box.run(['begin', 'HO-1']).code, 0);
+  assert.strictEqual(box.run(['stop', '--reason', 'crashed']).code, 0);
+  assert.strictEqual(box.run(['take', '--item', box.item({ kind: 'ticket', ref: 'LAR-9' })]).code, 0);
+  const carried = box.runJson().tickets.find((tk) => tk.id === 'HO-1');
+  assert.deepStrictEqual(carried.take, { kind: 'plan', ref: box.plan, goal: 'Tasks 2 to 4 pass their checks' });
+});

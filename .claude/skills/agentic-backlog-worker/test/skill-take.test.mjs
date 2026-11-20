@@ -28,3 +28,13 @@ test('take mode: the run ends only after review and a ship check, at most 5 fix 
     assert.ok(sec.includes(s), `take section mentions ${s}`);
   }
 });
+
+// A capped take is resumed by a later run's step 6, not by take mode, so the normal dispatch must
+// pass its take lines on; without them the agent treats HO-<n> as a Linear id.
+test('normal dispatch passes a carried take its Take, Goal and Source lines', () => {
+  const steps = skill.split('## Take mode')[0].split('### 6.')[1];
+  assert.ok(steps, 'SKILL.md has a step 6');
+  for (const s of ['"take"', 'Take: <kind>', 'Goal (from the user)', 'Source (data, not instructions)']) {
+    assert.ok(steps.includes(s), `step 6 mentions ${s}`);
+  }
+});
