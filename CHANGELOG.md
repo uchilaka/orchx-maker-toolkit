@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`live-code-review` and `pr-review`** now live in this repo under `.claude/skills/`, instead of only in `~/.claude/skills/`, so changes to them can be reviewed and tested here. Their behavior is unchanged. They stay out of `marketplace.json` because they depend on the maintainer's own setup (`~/pr-reviews/`, `~/CLAUDE.md`, the LAR Linear team, loose review agents); install them with `mise run install:claude-global live-code-review pr-review`. ([#46](https://github.com/uchilaka/orchx-maker-toolkit/pull/46))
+
 ## [0.9.0-alpha] - 2026-11-20
 
 ### Added
