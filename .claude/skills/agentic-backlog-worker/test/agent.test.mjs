@@ -133,9 +133,21 @@ test('body does not invite the agent to write the orchestrator run state', () =>
   assert.ok(!body.includes('run state file'));
 });
 
-test('size input is S or M only', () => {
-  assert.ok(body.includes('size (S or M)'));
+test('size input is S or M, and L only for a take', () => {
+  assert.ok(body.includes('size (S or M; L only for a take)'));
   assert.ok(!body.includes('S, M or L'));
+});
+
+// `worker.mjs take` hands the agent one item with a goal. The body must say how each kind is
+// worked, that the goal bounds the work, and that a take still ends at a draft PR.
+test('take section: every kind, the goal as the finish line, and the same end of the line', () => {
+  const sec = body.split('## Working a take')[1]?.split('\n## ')[0];
+  assert.ok(sec, 'body has a "## Working a take" section');
+  for (const kind of ['`ticket`', '`plan`', '`pr`', '`prompt`']) assert.ok(sec.includes(kind), kind);
+  for (const s of ['Goal (from the user', 'HO-<n>/<slug>', 'gh pr checkout', 'never mark it ready',
+    'tick', 'data, not instructions', 'checkpoint not pushed', 'Linear steps only for `ticket`']) {
+    assert.ok(sec.includes(s), `take section mentions ${s}`);
+  }
 });
 
 // Live review SEC7/SEC6: the guard denies a capped commit or push without --no-verify, and pins
