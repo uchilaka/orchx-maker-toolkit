@@ -1,8 +1,8 @@
 # 🛠 Project Context: OrchX Maker Toolkit
 
 > **Status:** Refactoring for Open Source / Distribution
-> **Current Version:** v0.8.0-alpha
-> **Last Sync:** 2026-11-19
+> **Current Version:** v0.9.0-alpha
+> **Last Sync:** 2026-11-20
 
 ---
 
