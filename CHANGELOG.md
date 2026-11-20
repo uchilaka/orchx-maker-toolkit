@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`pr-ship-check`:** once a PR's reviews have landed and every fix-now finding is fixed, says whether it ships, whether part of it can ship ahead, and any high-confidence separation-of-concerns or simplification changes, each backed by named files or commits. It adds a missing `[Unreleased]` entry, recommends the next release version, and on a Ship verdict for your own PR adds a `ready to ship` label and moves a draft to ready for review. Runs in a background subagent; `/live-code-review` and `/pr-triage` start it when they finish.
 - **`/agentic-backlog-worker`** keeps a triage baseline, so each invocation classifies only Linear tickets that are new or changed since the last one, with a full re-check every 14 days or on `--full`. Repo answers become lasting rules (`repo-rules.yml`), estimates are filled in only where Linear has none, never overwritten, and `TRIAGE.md` is the hand-off: what changed, what's waiting on review, and what's next. New `worker.mjs` commands: `brief`, `delta`, `merge`, `touched`, `rule`. ([LAR-504](https://linear.app/larcity-and-affiliates/issue/LAR-504))
 
 ### Changed
