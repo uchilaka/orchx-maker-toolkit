@@ -1,11 +1,11 @@
 ---
 name: pr-review
-description: Review a pull request or branch diff and save structured feedback locally as markdown — never posts to GitHub. Interviews for perspective (self vs. teammate) and depth (quick scan vs. deep dive), spawns the security-reviewer agent when the diff touches a security surface, and saves to ~/pr-reviews/<project>/ using the <JIRA>_PR-<NUM>_<slug>.md convention. Use when the user says "/pr-review", "review this PR", "review PR 123", "review my branch", or asks for a quick review pass. This is the lighter counterpart to /live-code-review — if the user's phrasing could mean either a quick pass or the full multi-agent review, ask which they want before starting.
+description: Review a pull request or branch diff and save structured feedback locally as markdown — never posts to GitHub. Interviews for perspective (self vs. teammate) and depth (quick scan vs. deep dive), spawns the security-reviewer agent when the diff touches a security surface, and saves to ~/pr-reviews/<project>/ using the <JIRA>_PR-<NUM>_<slug>.md convention, then ends with /triage-findings, which commits verified fix-now findings on the user's own work. Use when the user says "/pr-review", "review this PR", "review PR 123", "review my branch", or asks for a quick review pass. This is the lighter counterpart to /live-code-review — if the user's phrasing could mean either a quick pass or the full multi-agent review, ask which they want before starting.
 ---
 
 # PR Review Skill
 
-Review a pull request and save structured feedback locally. Never post to GitHub.
+Review a pull request, save structured feedback locally, then triage it with `/triage-findings`. Never post to GitHub.
 
 ## Trigger
 
@@ -37,14 +37,14 @@ Ask two quick questions before starting (skip any the user already answered):
 ```bash
 # If PR number provided:
 gh pr diff <number>
-gh pr view <number> --json number,title,url,headRefName,body
+gh pr view <number> --json number,title,url,headRefName,body,author
 
 # If current branch (no PR yet):
 git diff main...HEAD
 git log main...HEAD --oneline
 ```
 
-Extract the Jira ticket from the branch name or PR body (pattern: `COM-\d+`).
+Extract the ticket key from the branch name or PR body: any Jira- or Linear-style key matching `[A-Z]+-\d+`, such as `LAR-522`.
 
 ### Step 3: Security check
 
@@ -96,10 +96,10 @@ Save to `~/pr-reviews/<project>/` using this naming convention:
 ```
 <JIRA-TICKET>_PR-<NUMBER>_<short-slug>.md
 ```
-Example: `COM-1053_PR-1290_donor-committee-mapping.md`
+Example: `LAR-522_PR-46_move-review-skills-into-repo.md`
 
-If no Jira ticket is found, omit that segment: `PR-1290_donor-committee-mapping.md`
-If no PR exists yet (branch-only review), use: `COM-1053_branch-review_<slug>.md`
+If no ticket is found, omit that segment: `PR-46_move-review-skills-into-repo.md`
+If no PR exists yet (branch-only review), use: `LAR-522_branch-review_<slug>.md`
 
 #### Review file format
 
@@ -130,9 +130,10 @@ If no PR exists yet (branch-only review), use: `COM-1053_branch-review_<slug>.md
 <One of: Ship it / Ship with fixes / Needs work / Needs discussion>
 ```
 
-### Step 6: Offer to browse
+### Step 6: Triage
 
-After saving, offer to open the review with `/browse`.
+Run `/triage-findings` on the saved doc, and pass it the PR context from Step 2 (number, author, title, body). For a branch-only review, pass the branch name instead; the doc's `PR` row already says `branch-only`. It decides own-WIP or teammate mode from authorship, not from the Step 1 perspective answer. On the user's own work it applies and commits the verified fix-now findings without asking, then puts everything else to the user in one batch. On anyone else's PR it asks first. It never posts to the PR, so this skill still never posts.
 
-If the `/browse` skill does not exist yet, create it at `~/.claude/skills/browse/SKILL.md` using the spec at:
-https://gist.github.com/uche-at-abt/d29c7d9a55a60a3558c8ca880da0ddf6#file-browse-md
+### Step 7: Offer to browse
+
+Once triage has handed back, including the user's answer to its batch if it asked one, offer to open the review with `/browse`.
