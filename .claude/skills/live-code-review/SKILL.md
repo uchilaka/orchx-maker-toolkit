@@ -7,7 +7,7 @@ description: Run a comprehensive, multi-agent code review on a PR/MR once it's g
 
 A comprehensive, multi-lens review for a PR/MR that's genuinely ready to ship. It exists alongside `/pr-review` (the quick, single-pass version) rather than replacing it — reach for this one when the user wants the full treatment: parallel specialized sub-agents, a triage pass that weighs velocity against risk, Linear tickets for anything deliberately deferred rather than silently dropped, and real line-anchored comments posted back to the PR/MR so teammates see the same findings without having to open a separate doc.
 
-**This is an intentional exception to the usual "never post PR reviews to the PR" convention** (`/pr-review` still never posts). Only fix-now and deferred findings get posted here — dismissed findings and praise stay local-only. On the user's own work in progress they post by default; on anyone else's PR, nothing goes out until the user has seen exactly what will be posted and said yes (Step 7).
+**This is an intentional exception to the usual "never post PR reviews to the PR" convention** (`/pr-review` still never posts). Only fix-now and deferred findings get posted here — dismissed findings and praise stay local-only. On the user's own work in progress they post by default; on anyone else's PR, nothing goes out until the user has seen exactly what will be posted and said yes (Step 6).
 
 The word "live" in the name is load-bearing: this review only ever starts because the user explicitly asked for it, right now. Never trigger it as a side effect of other work, and never assume which review depth the user wants — ask if it's unclear.
 
@@ -30,7 +30,7 @@ Accepts one of:
 | Simplification & maintainability | `code-simplifier` | existing, invoked in **report-only mode** (see Step 3) |
 | Correctness & logic bugs | `correctness-reviewer` | new, dedicated to this workflow |
 | Test coverage & quality | `test-coverage-reviewer` | new, dedicated to this workflow |
-| Triage | `review-triage` | new, runs after the four above report |
+| Triage | `/triage-findings` (runs the `review-triage` agent) | shared with `/pr-review`, runs after the four above report |
 
 ## Workflow
 
@@ -62,27 +62,21 @@ Dispatch all four in a single message so they run concurrently, each given the d
 
 Collect all findings into one aggregated list before moving on.
 
-### Step 4: Triage pass
+### Step 4: Save the review
 
-Send the full aggregated findings list, plus PR/MR context (title, description, anything about timeline pressure the user has mentioned), to `review-triage`. It returns a recommendation (fix now / defer / dismiss) and reasoning per finding — it does not decide, it informs the next step.
+Write the review doc now, before triage, because `/triage-findings` works on the saved doc. Follow `references/review-template.md` for format and file naming (`~/pr-reviews/<project>/<JIRA>_PR-<NUMBER>_<slug>.md`, with the same fallbacks as `/pr-review` when there's no ticket or no PR). Leave the **Triage** lines out, since Step 5 writes them, and set the `PR comments` row to `Pending`.
 
-### Step 5: Collaborative triage with the user
+### Step 5: Triage
 
-Present the full findings list in one batch — grouped by category (Security / Bugs & Correctness / Simplification & Maintainability / Testing) per `references/review-template.md`, each with its stoplight emoji and the triage agent's recommendation + reasoning. Let the user respond in prose (e.g. "agree on 1 and 3, but let's fix 2 now too, and drop 4 — that's not actually a problem here") rather than forcing a per-finding Q&A — this is a batch decision, not an interrogation. Parse their response into a final decision per finding: **fix now**, **defer (ticket)**, or **dismiss**. If anything's unclear from their reply, ask before proceeding rather than guessing.
+Run `/triage-findings` on the doc from Step 4, and pass it the PR/MR context from Step 0 (number, author, title, body) along with anything the user said about timeline pressure. It owns the whole triage: the `review-triage` agent's recommendations, the choice between own-WIP and teammate mode, applying and committing the fix-now findings, the user's batch decision, Linear tickets for deferred findings, and the **Triage** lines written back to the doc. When it hands back, the doc holds the final decision for every finding. It doesn't run `/pr-ship-check` when called from here; Step 9 does, after posting.
 
-### Step 6: Execute the decisions
-
-- **Fix now**: apply the edit directly. Follow the user's existing commit-cadence convention — commit once the fix is validated, referencing the review in the message. Then append " — Fixed in `<sha>`" to that finding's **Triage** line in the review doc, since `/pr-ship-check`'s gate reads exactly that.
-- **Defer**: create a Linear issue via the `linear-server` MCP tools. If the Linear team/project for this repo isn't already obvious (check project memory first), ask once. Link it to the PR and, when two or more findings are deferred, a per-PR parent ticket following `~/.claude/guides/deferred-tickets.md` — read it before filing the first ticket. After the issue exists, insert an inline comment at the flagged location pointing to it — `// TODO(LINEAR-123): <short summary>`, using whatever comment syntax matches the file (`#` for Ruby/YAML/shell, `//` for JS/TS, etc.).
-- **Dismiss**: no code change — just record the reasoning in the review doc so it's not silently lost.
-
-### Step 7: Post to the PR/MR — by default on my own WIP, otherwise only when asked
+### Step 6: Post to the PR/MR — by default on my own WIP, otherwise only when asked
 
 Skip this step entirely if there's no PR/MR (branch-only review) — there's nothing to post to.
 
 1. **Build the comment set**: take only the **fix-now** and **deferred** findings (never dismissed items or praise — those stay local-only, keeping the PR thread focused on things that actually need attention).
 2. **Split by whether the finding's location is inside the diff**: a line-anchored review comment can only attach to a line that's actually part of the diff. For each finding, check whether its `file:line` falls within the diff hunks you already fetched.
-   - **In the diff** → becomes a line comment: `path`, `line`, and a body combining the stoplight emoji, the finding, and the triage outcome (`Fix now — <what was done>` or `Deferred — see LINEAR-123`).
+   - **In the diff** → becomes a line comment: `path`, `line`, and a body combining the stoplight emoji, the finding, and the triage outcome from the doc's **Triage** line (`Fix now — fixed in <sha>` or `Deferred — see <ISSUE-ID>`).
    - **Not in the diff** (e.g. a pre-existing bug on a touched line, or something structural) → fold it into the overall review summary body instead of forcing a line comment onto a line the PR didn't actually change.
 3. **Decide whether to post** (rule set 2026-11-19), based on who authored the PR/MR. Compare its author with the authenticated user: `gh pr view <n> --json author -q .author.login` against `gh api user -q .login` (GitLab: `glab mr view <n> -F json` `.author.username` against `glab api user` `.username`).
    - **My own work in progress** (I authored it): post by default, without asking. Still show the finalized comment list (findings, bodies, inline vs. summary) in the final report, with the review's link.
@@ -94,14 +88,14 @@ Skip this step entirely if there's no PR/MR (branch-only review) — there's not
    For GitHub this posts one review with all line comments atomically. For GitLab, it posts the summary as a top-level note first, then one discussion per line comment (GitLab has no batch-review endpoint, so partial failure is possible — if a discussion POST fails partway through, tell the user which ones landed and which didn't rather than silently retrying).
 5. If the CLI reports a failure (e.g. a line genuinely isn't diff-eligible despite your check, auth issues), surface the exact error — don't retry blindly or fall back to guessing a different line.
 
-### Step 8: Save the review
+### Step 7: Record the posting
 
-Follow `references/review-template.md` exactly for format and file naming (`~/pr-reviews/<project>/<JIRA>_PR-<NUMBER>_<slug>.md`, with the same fallbacks as `/pr-review` when there's no ticket or no PR). This local doc is the durable record regardless of whether Step 7 ran — note in it whether PR comments were posted and how many.
+Set the doc's `PR comments` row to what Step 6 did: `Posted: N line comments + summary`, `Not posted (user declined)` or `Not posted (branch-only review)`. The doc is the durable record whether or not anything was posted.
 
-### Step 9: Offer to browse
+### Step 8: Offer to browse
 
 After saving, offer to open the review with `/browse`, same as `/pr-review` does.
 
-### Step 10: Ship check
+### Step 9: Ship check
 
 If there's a PR/MR and every fix-now finding now carries `Fixed in <sha>`, run `/pr-ship-check <number>`. It re-checks that gate itself, along with the PR's blocking threads, and says whether the PR ships, splits or simplifies first. If any fix-now finding is still open, skip this step and name what's left.
