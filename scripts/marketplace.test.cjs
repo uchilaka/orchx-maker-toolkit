@@ -61,13 +61,36 @@ test('no skill ships in two plugins', () => {
   }
 });
 
-// A plugin that exists for its hooks (hot-reload-preview) ships no skills, so
-// installing it never adds a skill the user didn't choose. LAR-394 tracks the
-// reverse check: that every real skill is listed by some plugin.
-test('hook plugins ship no skills', () => {
+// A plugin with hooks ships either no skills (hot-reload-preview), or only
+// skills its own hook scripts live in (openv, whose guard protects its skill).
+// Either way, installing it never adds a skill the user didn't choose: every
+// skill it brings is one its hooks need. A hooks-only plugin listing a skill
+// that already ships elsewhere is caught by "no skill ships in two plugins".
+// LAR-394 tracks the reverse check: that every real skill is listed by some
+// plugin.
+const skillsWithoutHooks = (p) => {
+  const scripts = hooksOf(p).map((h) => scriptOf(p, h.command));
+  return (p.skills || []).filter((s) => {
+    const dir = path.join(ROOT, p.source, s) + path.sep;
+    return !scripts.some((script) => script.startsWith(dir));
+  });
+};
+
+test('a hook plugin ships only skills its hook scripts live in', () => {
   for (const p of plugins.filter((p) => p.hooks)) {
-    assert.deepEqual(p.skills, [], `${p.name} has hooks, so it must set "skills": []`);
+    assert.deepEqual(skillsWithoutHooks(p), [], `${p.name} has hooks, so each skill it lists must hold one of its hook scripts`);
   }
+});
+
+test('the hook-plugin rule rejects a skill no hook script lives in', () => {
+  const hook = (script) => ({ PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}"/${script} || exit 2` }] }] });
+  const guard = '.claude/skills/openv/hooks/guard-secrets.sh';
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: [], hooks: hook(guard) }), []);
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv'], hooks: hook(guard) }), []);
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/browse'], hooks: hook(guard) }), ['./.claude/skills/browse']);
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv', './.claude/skills/browse'], hooks: hook(guard) }), ['./.claude/skills/browse']);
+  // A sibling folder whose name starts with the skill's isn't inside it.
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/open'], hooks: hook(guard) }), ['./.claude/skills/open']);
 });
 
 test('every hook script exists and is executable', () => {
@@ -95,4 +118,34 @@ test('the plugin hook and browse/install/hooks.json run the same command', () =>
   const tail = (c) => c.replace(/^.*?ensure-server\.sh"?/, '');
   assert.equal(tail(plugin), tail(install));
   assert.equal(tail(plugin), ' --open >/dev/null 2>&1', 'no folder argument');
+});
+
+// The guard must block when it can't run. Claude Code blocks a tool call only
+// on exit 2, so a missing or non-executable script (127, 126) would let every
+// command through; `|| exit 2` turns those into a block. The guard itself
+// exits only 0 or 2, so nothing it allows is blocked. Both install paths
+// register the same command (LAR-528).
+const openvGuard = () => {
+  const p = plugins.find((p) => p.name === 'openv');
+  const pre = (p.hooks && p.hooks.PreToolUse) || [];
+  const install = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude', 'skills', 'openv', 'install', 'hooks.json'), 'utf8')).hooks;
+  return { p, pre, install };
+};
+
+test('openv registers its guard as a PreToolUse(Bash) hook that blocks when it can\'t run', () => {
+  const { pre } = openvGuard();
+  assert.equal(pre.length, 1);
+  assert.equal(pre[0].matcher, 'Bash');
+  assert.equal(pre[0].hooks[0].command, '"${CLAUDE_PLUGIN_ROOT}"/.claude/skills/openv/hooks/guard-secrets.sh || exit 2');
+});
+
+test('the openv plugin hook and openv/install/hooks.json register the same guard', () => {
+  const { p, install } = openvGuard();
+  assert.deepEqual(Object.keys(p.hooks), Object.keys(install), 'same events');
+  const tail = (c) => c.replace(/^.*?\/hooks\/guard-secrets\.sh"?/, '');
+  const plugin = p.hooks.PreToolUse[0];
+  const local = install.PreToolUse[0];
+  assert.equal(local.matcher, plugin.matcher);
+  assert.equal(tail(local.hooks[0].command), tail(plugin.hooks[0].command));
+  assert.match(local.hooks[0].command, /^"\{\{SKILL_DIR\}\}\/hooks\/guard-secrets\.sh"/);
 });

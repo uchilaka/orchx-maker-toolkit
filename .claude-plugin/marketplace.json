@@ -44,7 +44,17 @@
       "name": "openv",
       "source": "./",
       "description": "Loads Proton Pass secrets into a command's environment on demand, keeping values out of Claude sessions",
-      "skills": ["./.claude/skills/openv"]
+      "skills": ["./.claude/skills/openv"],
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [
+              { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/.claude/skills/openv/hooks/guard-secrets.sh || exit 2" }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

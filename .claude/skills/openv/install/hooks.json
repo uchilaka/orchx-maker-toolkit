@@ -1,0 +1,16 @@
+{
+  "description": "Block Bash commands that would put a Proton Pass value in front of the agent (openv export, pass-cli item view, --no-masking, ...). Needs jq; without it, commands naming openv or pass-cli are blocked",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{SKILL_DIR}}/hooks/guard-secrets.sh\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}

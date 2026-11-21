@@ -5,14 +5,9 @@ description: Load secrets from Proton Pass into a command's environment on deman
 
 # /openv: secrets on demand, never in the session
 
-The script is `${CLAUDE_SKILL_DIR}/bin/openv`, also linked onto PATH as `openv`. In
-OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the
-skill loads.
+The script is `${CLAUDE_SKILL_DIR}/bin/openv`. Call it by that path: the `openv` on PATH exists only if the user ran `mise run install:openv`. In OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the skill loads.
 
-> In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export` and
-> `mise run install:openv` work now. The command guard (`hooks/guard-secrets.sh`, its
-> patterns in `hooks/deny.tsv`) is written but not yet installed as a hook. `items`, the
-> hook wiring and the template builder come next.
+> In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export`, `mise run install:openv` and the command guard work now. `items` and the template builder come next.
 
 ## The rule this skill exists for
 
@@ -27,6 +22,10 @@ a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value in
 `openv run`, or get past `export`'s checks. The real boundary is the agent having no
 `pass-cli` login of its own.
 
+## The command guard
+
+A PreToolUse(Bash) hook, `hooks/guard-secrets.sh`, blocks commands that would print a value: `openv export`, `pass-cli item view`, `pass-cli inject`, `--no-masking` and the rest of `hooks/deny.tsv`. A blocked command fails with a message that points to `openv run`; rewrite the command that way rather than working around the block. The `openv` plugin installs the hook, and so does `mise run install:claude-global openv`, which asks first. It needs `jq`: without it, every command naming `openv` or `pass-cli` is blocked.
+
 <!-- TODO(LAR-527): say masking covers stdout/stderr and whole values only (files, partial values). -->
 
 ## Requirements
@@ -34,7 +33,7 @@ a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value in
 - `bash` (3.2, the macOS default, or later) and `git`.
 - `pass-cli` (Proton Pass CLI), logged in: `brew install protonpass/tap/pass-cli`, then
   `pass-cli login`. Only `--check`, `run` and `export` call it.
-- `jq`, but only for `items` (not built yet).
+- `jq`, for the command guard and for `items` (not built yet).
 
 ## Install onto PATH
 
@@ -47,6 +46,8 @@ Symlinks `~/.local/bin/openv` to the main checkout's script (idempotent; warns i
 `SKILL_SOURCE_ROOT=$PWD mise run install:openv` from that worktree, then re-run from
 `main` after merge. `mise run uninstall:openv` removes the link when it points into
 openv.
+
+An existing `~/.local/bin/openv` link is replaced only when it points at an openv script. If it points anywhere else, install leaves it alone and says so; `mise run install:openv -- --force` replaces it.
 
 ## Where profiles live
 
