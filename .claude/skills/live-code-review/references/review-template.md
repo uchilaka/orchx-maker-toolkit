@@ -35,7 +35,7 @@ Same convention as `/pr-review`:
 - No PR/MR exists yet (branch-only review) → `<JIRA-TICKET>_branch-review_<slug>.md`
 - `<project>` is the repo directory name.
 
-Never post this review to the PR/MR itself — it's a local artifact only.
+This doc is the durable local record. Only fix-now and deferred findings are posted to the PR/MR, as SKILL.md Step 6 describes.
 
 ## Review file format
 
@@ -49,7 +49,7 @@ Never post this review to the PR/MR itself — it's a local artifact only.
 | Jira         | <ticket or "—"> |
 | Date         | <YYYY-MM-DD> |
 | Reviewers    | security-reviewer, code-simplifier, correctness-reviewer, test-coverage-reviewer |
-| PR comments  | <"Not posted (branch-only review)" / "Not posted (user declined)" / "Posted: N line comments + summary"> |
+| PR comments  | <"Pending" (until Step 7) / "Not posted (branch-only review)" / "Not posted (user declined)" / "Posted: N line comments + summary"> |
 
 ## Summary
 
@@ -92,4 +92,4 @@ Every finding that survives to the saved doc should carry a **Triage** line show
 
 ## Notes on the PR comments field
 
-This is the one place `/live-code-review` intentionally diverges from `/pr-review`'s "never post to the PR" rule — fix-now and deferred findings are posted as real line-anchored comments on the PR/MR itself: by default on the user's own work in progress, and on anyone else's only after the user confirms the finalized list (see SKILL.md Step 7). The local doc is still the durable record either way; this field just says whether a copy also went out to the PR/MR, and how many comments landed. Dismissed findings and praise never get posted, regardless of what this field says.
+This is the one place `/live-code-review` intentionally diverges from `/pr-review`'s "never post to the PR" rule — fix-now and deferred findings are posted as real line-anchored comments on the PR/MR itself: by default on the user's own work in progress, and on anyone else's only after the user confirms the finalized list (see SKILL.md Step 6). The local doc is still the durable record either way; this field just says whether a copy also went out to the PR/MR, and how many comments landed. Dismissed findings and praise never get posted, regardless of what this field says.

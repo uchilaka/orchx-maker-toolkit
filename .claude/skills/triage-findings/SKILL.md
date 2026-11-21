@@ -13,7 +13,7 @@ It never pushes, never posts to the PR, and never files a ticket without the use
 ## Inputs
 
 - **Review doc**: usually a path under `~/pr-reviews/<project>/`, but any review doc in the same format works. When called by a review skill, it's the doc that skill just saved. Run by hand with no path, list the five newest docs for the current repo's `<project>` and ask which one.
-- **PR context**: number, author, title and body. A calling skill passes what it already fetched. Otherwise the number is the argument if one was given, else the one in the doc's `PR` row (a URL ending in the number). If both exist and disagree, stop and ask. Fetch the rest with `gh pr view <n> --json number,author,title,body,headRefName` (GitLab: `glab mr view <n> -F json`). A doc whose `PR` row is `branch-only` has no PR.
+- **PR context**: number, author, title and body. A calling skill passes what it already fetched. Otherwise the number is the argument if one was given, else the one in the doc's `PR` row (a URL ending in the number). If both exist and disagree, stop and ask. Fetch the rest with `gh pr view <n> --json number,author,title,body,headRefName` (GitLab: `glab mr view <n> -F json`). A doc whose `PR` row (`PR/MR` in `/live-code-review` docs) is `branch-only` has no PR.
 
 Every finding is a line in the doc's `## Findings` that starts with a stoplight emoji. Praise (🎉 / `:tada:`) is never triaged.
 
@@ -95,7 +95,7 @@ In teammate mode, Step 3 was the batch: go straight to carrying out the answer b
 Then carry out the answer:
 
 - **Fix now** (a held fix the user approves, or a teammate-mode fix): apply, validate and commit as in 4b.
-- **Defer**: only after the user approves the list, file each as a Linear issue with the `linear` MCP tools (`mcp__linear__save_issue`). If the team isn't obvious from project memory or `~/CLAUDE.md`, ask once. Name the PR by its full URL in the body, never a bare `#N`. With no PR, name the branch and the review doc's path instead. When two or more are deferred, put them under one parent ticket for the PR, following `~/.claude/guides/deferred-tickets.md`. Add an inline `TODO(<ISSUE-ID>): <summary>` at each location, in the file's comment syntax, and commit those TODOs together.
+- **Defer**: only after the user approves the list, file each as a Linear issue with the `linear` MCP tools (`mcp__linear__save_issue`). If the team isn't obvious from project memory or `~/CLAUDE.md`, ask in the same batch message, not as a separate question. Name the PR by its full URL in the body, never a bare `#N`. With no PR, name the branch and the review doc's path instead. When two or more are deferred, put them under one parent ticket for the PR, following `~/.claude/guides/deferred-tickets.md`. Add an inline `TODO(<ISSUE-ID>): <summary>` at each location, in the file's comment syntax, and commit those TODOs together.
 - **Dismiss**: no change; record the reason.
 
 ## Step 6: Write back
@@ -107,14 +107,14 @@ Every triaged finding in the doc ends up with a **Triage** line under it, in the
   - **Triage**: Fix now — <reason> — Fixed in `<sha>`
 ```
 
-Add or update the doc's `## Deferred / Ticketed` and `## Dismissed` tables the same way. The reason on a Triage line is the final one: when the user overrode review-triage, record the user's reason.
+A deferred finding also gets a `**Ticket**: [<ISSUE-ID>](<url>)` line under its Triage line. Add or update the doc's `## Deferred / Ticketed` and `## Dismissed` tables the same way. The reason on a Triage line is the final one: when the user overrode review-triage, record the user's reason.
 
 ## Step 7: Hand back
 
 Report, outcome first: commits made (SHA and finding), what's held or needs attention, tickets filed. Then:
 
-- Called by `/live-code-review`: return to its posting step.
-- Every fix-now finding carries `Fixed in <sha>` and there's a PR: run `/pr-ship-check <number>`.
+- Called by `/live-code-review`: return to its posting step, and don't run `/pr-ship-check`. It runs that itself after posting.
+- Otherwise, if every fix-now finding carries `Fixed in <sha>` and there's a PR: run `/pr-ship-check <number>`.
 - Otherwise name what's still open.
 
 Nothing is pushed. Say so, and leave pushing to the user.
