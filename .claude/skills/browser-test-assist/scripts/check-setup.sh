@@ -27,6 +27,7 @@ check "usage statistics off"                       bash -c '[[ "$0" == *--no-usa
 check "workspace is capture root"                  bash -c '[[ "$0" == *"--workspace=$1"* ]]' "$args" "$CAPTURE_ROOT"
 check "capture root exists"                        test -d "$CAPTURE_ROOT"
 check "profile dir exists"                         test -d "$PROFILE_DIR"
+check "session-end cleanup hook registered"        bash -c 'jq -e --arg c "$0" '"'"'[.hooks.SessionEnd[]?.hooks[]?.command] | any(endswith($c))'"'"' "$HOME/.claude/settings.json"' "browser-test-assist/scripts/chrome-test-profile-cleanup.py"
 
 # A profile can only be open in one Chrome process. If a manual login session
 # or a previous run's test browser is still holding it, the MCP launch fails on
