@@ -27,11 +27,13 @@ check "usage statistics off"                       bash -c '[[ "$0" == *--no-usa
 check "workspace is capture root"                  bash -c '[[ "$0" == *"--workspace=$1"* ]]' "$args" "$CAPTURE_ROOT"
 check "capture root exists"                        test -d "$CAPTURE_ROOT"
 check "profile dir exists"                         test -d "$PROFILE_DIR"
+check "session-end cleanup hook registered"        bash -c 'jq -e --arg c "$0" '"'"'[.hooks.SessionEnd[]?.hooks[]?.command] | any(endswith($c))'"'"' "$HOME/.claude/settings.json"' "browser-test-assist/scripts/chrome-test-profile-cleanup.py"
 
 # A profile can only be open in one Chrome process. If a manual login session
-# is still running against it, the MCP launch will fail on the profile lock.
+# or a previous run's test browser is still holding it, the MCP launch fails on
+# the profile lock, and macOS keeps sending terminal links to that browser.
 if pgrep -f -- "--user-data-dir=$PROFILE_DIR" >/dev/null 2>&1; then
-  echo "WARN  test profile is open in a running Chrome; quit it before the MCP launches"
+  echo "WARN  test profile is open in a running Chrome; quit it or run scripts/close-test-browser.sh"
 fi
 
 exit "$fail"

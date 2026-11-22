@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **openv playbook** (`.claude/skills/openv/PLAYBOOK.md`): first-time setup, adding a profile, running a command with secrets, and what to do when the guard blocks one, with a diagram of how the guard decides. SKILL.md links to it and stays the reference.
+- **`browser-test-assist`** ships `scripts/chrome-test-profile-cleanup.py`, a `SessionEnd` hook that stops the session's test Chrome and chrome-devtools MCP server, and any orphaned ones from sessions that crashed, when the close-out step didn't run. It matches only the test profile, so the user's own Chrome and the extension browser are never touched, and it logs process IDs only. `check-setup.sh` warns when the hook isn't registered. ([#56](https://github.com/uchilaka/orchx-maker-toolkit/pull/56))
+- **`/agentic-backlog-worker` `denied_repos`:** a list of absolute paths in `~/.config/agentic-backlog-worker/config.yml` (`denied_repos: [/opt/Developer/old-repo]`) that are never a ticket repo, nor are their `-worktrees/` siblings. `start` and `rule` refuse them, and so does `merge` for any verdict queued on one. Use it for an archived or superseded checkout that still sits under `/opt/Developer`.
+
+### Fixed
+- **`browser-test-assist`** now closes the test browser at the end of every session, using the new `scripts/close-test-browser.sh`. A test browser left running was the oldest Chrome instance, so macOS sent every link opened from the terminal, `/browse` included, to it rather than to the user's own Chrome. The script stops only the main process for the test profile. `check-setup.sh` points at it when that profile is still open.
 
 ## [0.10.0-alpha] - 2026-11-22
 
