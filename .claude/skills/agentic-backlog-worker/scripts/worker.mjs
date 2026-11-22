@@ -1014,7 +1014,13 @@ function replies(opts) {
   }
   const t = now();
   const times = handoffTimes();
-  const out = { checked: input.tickets.length, requeue: [], close: [], hold: [], waiting: [], noCheckpoint: [] };
+  // --dry-run sorts and reports only: no reply file, no pending entry, no baseline change, so a
+  // preview leaves the next real run to requeue (and SKILL.md removes no label).
+  const dryRun = !!opts['dry-run'];
+  const out = {
+    checked: input.tickets.length, requeue: [], close: [], hold: [], waiting: [], noCheckpoint: [],
+    ...(dryRun && { dryRun }),
+  };
   const state = loadReplies();
   for (const tk of input.tickets) {
     const { checkpoint, replies: found } = findReplies({ comments: tk.comments, me: input.me, handedOffAt: times[tk.id] ?? null });
@@ -1029,12 +1035,17 @@ function replies(opts) {
       out[intent].push({ id: tk.id, title: clean(tk.title), repliedAt: clean(repliedAt), excerpt: clean(latest.body).slice(0, EXCERPT_MAX) });
       continue;
     }
+    if (dryRun) {
+      out.requeue.push({ id: tk.id, title: clean(tk.title), repliedAt: clean(repliedAt) });
+      continue;
+    }
     const file = path.join(stateDir(), REPLIES_DIR, `${tk.id}.md`);
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     writeFileSync(file, replyDoc(tk.id, found));
     state.pending[tk.id] = { file, repliedAt, at: t };
     out.requeue.push({ id: tk.id, title: clean(tk.title), repliedAt: clean(repliedAt), file });
   }
+  if (dryRun) return out;
   writeJsonAtomic(stateDir(), REPLIES_FILE, state);
   settle(out.requeue.map((e) => e.id));
   return out;
@@ -1076,6 +1087,7 @@ async function main(argv) {
       seed: { type: 'boolean' },
       file: { type: 'string' },
       item: { type: 'string' },
+      'dry-run': { type: 'boolean' },
     },
   });
   const [cmd, arg, arg2] = positionals;

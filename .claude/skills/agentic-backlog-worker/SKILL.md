@@ -123,6 +123,10 @@ files yourself.
       node "${CLAUDE_SKILL_DIR}/scripts/worker.mjs" replies --file "$STATE/handoffs.json"
       ```
 
+      On `--dry-run`, run `worker.mjs replies --dry-run --file "$STATE/handoffs.json"` instead,
+      skip the next sub-step and remove no label: print `abw: <ID> would requeue on your reply`
+      for each id in `requeue`. The next real run requeues them.
+
    4. For each id in `requeue`, call `mcp__linear__save_issue` with `removeLabels:
       ["agent-handoff"]` and print `abw: <ID> requeued on your reply`. That label change is the
       only trace in Linear: post no comment. It also changes the ticket's `updatedAt`, so the

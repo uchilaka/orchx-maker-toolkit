@@ -392,3 +392,33 @@ test('replies: the latest reply decides, so "wait" then "go ahead" requeues (LAR
   // The agent still gets the whole exchange, the decision included.
   assert.match(readFileSync(r.json.requeue[0].file, 'utf8'), /fail the boot[\s\S]*Go ahead with A/);
 });
+
+test('replies --dry-run: reports the requeues but writes no reply file, pending entry or baseline change', () => {
+  const box = sandbox();
+  writeJson(box.state('baseline.json'), {
+    version: 1, triagedAt: NOW, reconciledAt: NOW,
+    tickets: {
+      'LAR-9': {
+        title: 'x', project: null, parentId: null, labels: [], updatedAt: 'u1', estimate: null,
+        size: 'S', status: 'queued', repo: box.repo, worked: { status: 'handoff', runId: 'run-20261120-080000' },
+      },
+    },
+  });
+  const before = readFileSync(box.state('baseline.json'), 'utf8');
+  const r = box.run(['replies', '--dry-run', '--file', box.file('h.json', handoffs([
+    T('LAR-9', [C(CHECKPOINT, '2026-11-20T08:00:00Z'), C('Go with A.', '2026-11-20T09:00:00Z')]),
+  ]))]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(r.json.dryRun, true);
+  assert.deepStrictEqual(r.json.requeue.map((e) => e.id), ['LAR-9']);
+  assert.strictEqual(r.json.requeue[0].file, undefined);
+  assert.ok(!existsSync(box.state('replies.json')));
+  assert.ok(!existsSync(box.state(path.join('replies', 'LAR-9.md'))));
+  assert.strictEqual(readFileSync(box.state('baseline.json'), 'utf8'), before);
+});
+
+test('SKILL.md: on --dry-run, step 3.0 passes --dry-run and removes no agent-handoff label', () => {
+  const sec = skillMd.split('### 3. Triage')[1].split('1. **Fetch.**')[0];
+  assert.ok(sec.includes('replies --dry-run --file'));
+  assert.match(sec, /On `--dry-run`[^\n]*(\n[^\n]*){0,3}remove no label/);
+});
