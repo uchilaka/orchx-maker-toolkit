@@ -2,6 +2,9 @@
 # mise pins node for the skill validator; there is no package.json, but ignore
 # node_modules/ in case a script pulls packages in locally.
 node_modules/
+# Playwright output from the /browse e2e suite.
+playwright-report/
+test-results/
 
 # Testing
 coverage/

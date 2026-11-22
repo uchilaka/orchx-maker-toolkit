@@ -144,6 +144,17 @@ describe("page shell", () => {
     assert.doesNotMatch(page, /mermaid/);
   });
 
+  test("the diagram overlay ships only with a diagram, and pan/zoom loads pinned and on demand", () => {
+    const withDiagram = htmlPage("T", renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```").html);
+    assert.equal(withDiagram.match(/<dialog data-diagram-dialog/g)?.length, 1);
+    assert.doesNotMatch(page, /data-diagram-dialog|panzoom/);
+    // Only a dynamic import() may name it: a static import or <script src> would fetch
+    // it on every page load, before anyone expands a diagram.
+    const refs = withDiagram.match(/[^\n]*@panzoom\/panzoom[^\n]*/g);
+    assert.equal(refs.length, 1);
+    assert.match(refs[0], /import\("https:\/\/cdn\.jsdelivr\.net\/npm\/@panzoom\/panzoom@\d+\.\d+\.\d+\/dist\/panzoom\.es\.js"\)/);
+  });
+
   test("no inline CSS: Tailwind CDN with typography, dark mode by class", () => {
     assert.doesNotMatch(page, /<style/);
     assert.match(page, /cdn\.tailwindcss\.com\/3\.4\.17\?plugins=typography/);
