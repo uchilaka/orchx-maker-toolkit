@@ -36,6 +36,7 @@ coverage/
 !.claude/skills/hand-off
 !.claude/skills/live-code-review
 !.claude/skills/pr-review
+!.claude/skills/triage-findings
 
 # Local configuration files (dotenv)
 # Follows the dotenv convention: .env.<environment> holds shared defaults and is

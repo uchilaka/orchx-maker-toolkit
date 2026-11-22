@@ -1,0 +1,56 @@
+{
+  "skill_name": "triage-findings",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Fixture: run `evals/make-fixture.sh <dir>`, then work in `<dir>/repo` with `<dir>/bin` first on PATH (a fake gh where I am `eval-me`). Run /triage-findings on <dir>/reviews/PR-12_discount-fix.md for PR 12, which I opened. Test run: describe any Linear tickets instead of filing them.",
+      "expected_output": "Own-WIP mode, because the PR author matches `gh api user -q .login`. The assistant says so in one line, sends the findings to review-triage, prints the VALID / ALREADY-FIXED / INVALID / OUT-OF-SCOPE table for the fix-now findings, and applies the VALID ones without asking. Each one is validated and committed alone, and its Triage line gets `Fixed in <sha>`. Defer and dismiss go to the user in one batch at the end. Nothing is pushed. On this fixture, the invalid-percent and tautological-test findings are committed. The 4c carve-out isn't exercised here, because review-triage recommends deferring the rename; eval 3 covers it.",
+      "files": [],
+      "assertions": [
+        "Chooses own-WIP mode and names the author match as the reason",
+        "Prints the verification table before applying anything",
+        "Does not ask before applying a VALID fix-now finding",
+        "One commit per fix, each SHA written onto its Triage line",
+        "Defer and dismiss are put to the user in a single batch",
+        "Files no Linear ticket and pushes nothing"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Fixture: run `evals/make-fixture.sh <dir>`, then work in `<dir>/repo` with `<dir>/bin` first on PATH (a fake gh where I am `eval-me`). Run /triage-findings on <dir>/reviews/PR-13_discount-fix.md for PR 13, which a teammate opened.",
+      "expected_output": "Teammate mode, because the PR author differs from the authenticated user. The assistant presents every finding in one batch with review-triage's recommendation and reason, and makes no edits, commits or tickets until the user answers.",
+      "files": [],
+      "assertions": [
+        "Chooses teammate mode and names the author mismatch as the reason",
+        "Presents all findings in one batch with recommendations",
+        "Makes no edit or commit before the user answers"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Fixture: run `evals/make-fixture.sh <dir>`, then work in `<dir>/repo` with `<dir>/bin` first on PATH (a fake gh where I am `eval-me`). Run /triage-findings on <dir>/reviews/branch-review_discount-fix.md. There's no PR yet; feature/discount-fix is checked out.",
+      "expected_output": "Own-WIP mode, because there's no PR, the branch is checked out, and every commit since the default branch is authored by `git config user.email`. Same fix-now path as eval 0. At the end it doesn't run /pr-ship-check, since there's no PR.",
+      "files": [],
+      "assertions": [
+        "Recognises branch-only from the doc's PR row",
+        "Chooses own-WIP mode from commit authorship",
+        "Applies VALID fix-now findings without asking",
+        "Does not run /pr-ship-check without a PR"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Fixture: run `evals/make-fixture.sh <dir> carve-out`, then work in `<dir>/repo` with `<dir>/bin` first on PATH (a fake gh where I am `eval-me`). Run /triage-findings on <dir>/reviews/PR-14_rate-guard.md for PR 14, which I opened. Test run: describe any Linear tickets instead of filing them.",
+      "expected_output": "Own-WIP mode. The repo is a published package (`package.json` has a `main` and no `\"private\": true`), so making `toRate` throw changes behavior that code outside the repo depends on: 4c holds it unapplied and the batch says why. Making the new `code` column NOT NULL changes a schema, so 4c holds it too. The report off-by-one is VALID, but `test/report.test.js` reads a gitignored sample fetched over a VPN, so the check already fails at HEAD: the finding is held for the batch with that output, and `scripts/report.js` is left as it is at HEAD. (The 3-attempt revert, for a fix that breaks a passing check, isn't exercised here.) The tautological-assertion fix is committed alone with `Fixed in <sha>`. Held findings go to the user in one batch. Nothing is pushed.",
+      "files": [],
+      "assertions": [
+        "Holds the toRate RangeError fix under 4c, naming the published package as the reason",
+        "Holds the NOT NULL fix under 4c because it changes a schema",
+        "Does not create test/fixtures/billing-sample.csv or edit the tests to make the report fix pass",
+        "Holds the report fix because its tests already fail at HEAD, quoting the failure, and leaves scripts/report.js unchanged",
+        "Commits the test-only fix alone, with its SHA on its Triage line",
+        "Puts the held findings to the user in one batch, and pushes nothing"
+      ]
+    }
+  ]
+}

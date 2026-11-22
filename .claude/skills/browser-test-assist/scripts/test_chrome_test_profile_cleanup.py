@@ -15,6 +15,7 @@ _spec = importlib.util.spec_from_file_location(
 cl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cl)
 
+# publish-prep: allow portability — a made-up home path in a fake process table
 PROFILE = "/Users/u/.cache/chrome-devtools-mcp/test-profile"
 
 
@@ -32,6 +33,7 @@ TREE = table(
     # session A: the one ending
     (200, 100, "-zsh"),
     (210, 200, "claude"),
+    # publish-prep: allow portability — a fake hook command line, matching what a global install runs
     (220, 210, "/bin/sh -c ~/.claude/skills/browser-test-assist/scripts/chrome-test-profile-cleanup.py"),
     (221, 220, "python3 chrome-test-profile-cleanup.py"),
     (230, 210, f"npm exec chrome-devtools-mcp@1.10.1 --userDataDir={PROFILE}"),
