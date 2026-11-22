@@ -4,8 +4,9 @@ import { resolve } from "node:path";
 
 // S9: an expanded diagram stays expanded across live reload. Saving the file reloads the
 // whole page, so the overlay reopens from sessionStorage: on the diagram with the same
-// source if there is one (it moved), else on the one at the same position (it was
-// edited), else it stays closed.
+// source if there is one (it moved), else on the one at the same position if the number
+// of diagrams hasn't changed (it was edited), else it stays closed. So a single save that
+// deletes one diagram and adds another can reopen on a neighbour: position is all it has.
 
 const FILE = resolve(import.meta.dirname, "fixtures/reload.md");
 // Written out rather than read from the file, so a run stopped mid-test (which leaves
@@ -13,7 +14,8 @@ const FILE = resolve(import.meta.dirname, "fixtures/reload.md");
 const ORIGINAL = `# Reload
 
 reload.spec.mjs rewrites this file while a diagram is expanded, and puts it back after
-each test.
+each test. It's generated from ORIGINAL in that spec: edit it there, or the next run
+puts this copy back.
 
 \`\`\`mermaid
 flowchart LR
@@ -80,6 +82,7 @@ test("stays closed when the expanded diagram is gone", async ({ page }) => {
   await expand(page, 1);
   await save(page, ORIGINAL.slice(0, ORIGINAL.lastIndexOf("```mermaid")));
   await expect(page.locator("pre.mermaid svg")).toHaveCount(1);
+  await rendered(page);
   await expect(dialog(page)).toBeHidden();
   // Nothing left behind to reopen it on a later reload.
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
@@ -117,6 +120,8 @@ test("a second reload before the diagrams render still restores", async ({ page 
   // The first reload never renders (mermaid is blocked), so it never gets to restore.
   await page.route(/cdn\.jsdelivr\.net\/npm\/mermaid/, (route) => route.abort());
   await page.reload();
+  expect(await page.evaluate(() => window.__renders)).toBe(0);
+  await expect(dialog(page)).toBeHidden();
   await page.unroute(/cdn\.jsdelivr\.net\/npm\/mermaid/);
   await page.reload();
   await expect(dialog(page)).toBeVisible();

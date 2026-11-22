@@ -108,7 +108,7 @@ function overlayDialog() {
 </dialog>`;
 }
 
-// TODO(LAR-567): unit-test the overlay's reopen()/takeSaved() rules in the same stub.
+// TODO(LAR-567): unit-test the overlay's reopen()/readSaved() rules in the same stub.
 // The rendering logic is a plain inline script, not part of the module, so the tests
 // can run it in a stub DOM; a module importing from a CDN can't run there. The module
 // only imports mermaid and hands it over.
@@ -194,15 +194,17 @@ ${overlayDialog()}
   var copyIcon = copyButton.innerHTML;
   var copyTimer = null;
   var KEY = "browse:diagram:" + location.pathname;
-  var restore = takeSaved();
+  var restore = readSaved();
   // Storage can throw (blocked site data); losing the restore is fine.
-  function takeSaved() {
+  function readSaved() {
     try {
       var raw = sessionStorage.getItem(KEY);
       var nav = performance.getEntriesByType("navigation")[0];
       if (raw && nav && nav.type === "reload") return JSON.parse(raw);
       sessionStorage.removeItem(KEY);
-    } catch (err) {}
+    } catch (err) {
+      forget(); // unreadable (or storage blocked, where this throws too and is caught)
+    }
     return null;
   }
   function remember() {
@@ -221,8 +223,9 @@ ${overlayDialog()}
     var sources = [].map.call(document.querySelectorAll("pre.mermaid"), function (pre) { return pre.dataset.mermaidSource; });
     var at = sources[saved.index] === saved.source ? saved.index : sources.indexOf(saved.source);
     if (at < 0 && sources.length === saved.count) at = saved.index;
-    if (at >= 0) open(document.querySelectorAll("[data-expand]")[at]);
-    else forget();
+    // Nothing to reopen on, or nothing drawn there: drop the entry, or a later reload
+    // would find it and reopen out of the blue.
+    if (at < 0 || !open(document.querySelectorAll("[data-expand]")[at])) forget();
   }
   function current() {
     var frame = document.querySelectorAll("[data-diagram]")[index];
@@ -264,7 +267,7 @@ ${overlayDialog()}
   function open(button) {
     opener = button;
     index = [].indexOf.call(document.querySelectorAll("[data-expand]"), button);
-    if (!show()) return; // not rendered yet: nothing to show
+    if (!show()) return false; // not rendered yet: nothing to show
     dialog.showModal();
     remember();
     loadPanzoom().then(function (Panzoom) {
@@ -276,14 +279,15 @@ ${overlayDialog()}
       // Offline or blocked: the fitted diagram still shows, without pan and zoom.
       console.error("browse: pan and zoom unavailable", err);
     });
+    return true;
   }
   dialog.addEventListener("close", function () {
     if (pz) {
       stage.removeEventListener("wheel", pz.zoomWithWheel);
       pz.destroy();
       pz = null;
-      zoomControls(false);
     }
+    zoomControls(false);
     zoom.removeAttribute("style"); // Panzoom leaves its transform behind
     zoom.textContent = "";
     resetCopy();
