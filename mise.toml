@@ -19,7 +19,7 @@ run = "git config core.hooksPath .githooks"
 
 [tasks.test]
 description = "Validate all skills via the gemini-cli Homebrew skill validator, then self-test publish-prep and the plugin and skill validators"
-run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs scripts/validate_plugin.selftest.cjs scripts/validate_skills.selftest.cjs"
+run = "node scripts/validate_skills.test.cjs && node --test scripts/patch_my_hosts_install.test.cjs scripts/publish_prep.selftest.cjs scripts/validate_plugin.selftest.cjs scripts/validate_skills.selftest.cjs && python3 .claude/skills/browser-test-assist/scripts/test_chrome_test_profile_cleanup.py"
 
 [tasks."test:publish-prep"]
 description = "Self-test publish-prep against its fixtures: each check must catch the problem seeded for it"
