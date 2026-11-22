@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`/agentic-backlog-worker` `denied_repos`:** a list of absolute paths in `~/.config/agentic-backlog-worker/config.yml` (`denied_repos: [/opt/Developer/old-repo]`) that are never a ticket repo, nor are their `-worktrees/` siblings. `start` and `rule` refuse them, and so does `merge` for any verdict queued on one. Use it for an archived or superseded checkout that still sits under `/opt/Developer`.
 
+### Fixed
+- **`browser-test-assist`** now closes the test browser at the end of every session, using the new `scripts/close-test-browser.sh`. A test browser left running was the oldest Chrome instance, so macOS sent every link opened from the terminal, `/browse` included, to it rather than to the user's own Chrome. The script stops only the main process for the test profile. `check-setup.sh` points at it when that profile is still open.
+
 ## [0.10.0-alpha] - 2026-11-22
 
 ### Added
