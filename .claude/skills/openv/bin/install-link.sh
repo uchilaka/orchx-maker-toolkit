@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
 # Install or uninstall ~/.local/bin/openv as a symlink to openv's bin/openv.
 #
-#   install-link.sh install
+#   install-link.sh install [--force]
 #   install-link.sh uninstall
+#
+# install replaces an existing link only when it points at an openv script
+# (another checkout, a pruned worktree). A link to anything else may be the
+# user's own `openv`, so it's replaced only with --force.
 #
 # Links point at the MAIN checkout (via git --git-common-dir) so a link into a
 # worktree doesn't dangle when the worktree is pruned. Set SKILL_SOURCE_ROOT to
 # test an unmerged worktree copy on purpose; outside a git checkout (a plugin
 # cache) it falls back to its own skill directory. Reused by `mise run
-# install:openv` (S15), the SessionStart hook (S7), and `uninstall:claude-global
-# openv` (S14).
+# install:openv` (S15) and `uninstall:claude-global openv` (S14).
 set -euo pipefail
 
 usage() {
-  echo "usage: $(basename "$0") install | uninstall" >&2
+  echo "usage: $(basename "$0") install [--force] | uninstall" >&2
   exit 2
 }
 
-[ $# -eq 1 ] || usage
-action="$1"
-case "$action" in install | uninstall) ;; *) usage ;; esac
+# TODO(LAR-557): test the argument shapes (uninstall --force, --force install)
+# and dangling or relative links.
+force=
+case "$#:${1:-}:${2:-}" in
+  1:install: | 1:uninstall:) action="$1" ;;
+  2:install:--force) action=install force=1 ;;
+  *) usage ;;
+esac
 
 # Follows a symlink chain to a physical file path; empty if dangling.
 resolve_file() {
@@ -69,6 +77,15 @@ case "$action" in
         warn_path
         exit 0
       fi
+      case "$cur_raw" in
+        */.claude/skills/openv/bin/openv) ;;
+        *)
+          if [ -z "$force" ]; then
+            echo "openv: $link_path already links to $cur_raw, which isn't openv; re-run with --force to replace it" >&2
+            exit 1
+          fi
+          ;;
+      esac
       mkdir -p "$link_dir"
       ln -sfn "$src_bin" "$link_path"
       echo "openv: installed -> $src_bin (was -> $cur_raw)"
