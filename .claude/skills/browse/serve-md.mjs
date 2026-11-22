@@ -47,8 +47,18 @@ function statusBadge(status) {
   return `<span class="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${cls}">${escapeHtml(status)}</span>`;
 }
 
+const EXPAND_ICON = '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/>';
+
+// The frame scrolls a wide diagram sideways in an inner box, so the expand button,
+// pinned to the outer one, stays in its corner. The button is invisible until the
+// diagram is hovered or the button has keyboard focus; where nothing can hover
+// (touch screens) it's always shown.
+// TODO(LAR-570): reuse toolIcon() for the button's SVG wrapper.
 function mermaidBlock(code) {
-  return `<div class="not-prose my-6 overflow-x-auto rounded-xl p-4 ring-1 ring-zinc-900/10 dark:ring-white/10"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>`;
+  return `<div data-diagram class="not-prose group relative my-6 rounded-xl ring-1 ring-zinc-900/10 dark:ring-white/10">
+<div data-diagram-scroll class="overflow-x-auto p-4"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>
+<button type="button" data-expand aria-label="Expand diagram" title="Expand diagram" class="absolute right-2 top-2 rounded-md bg-white/90 p-1.5 text-zinc-500 opacity-0 ring-1 ring-zinc-900/10 transition hover:text-zinc-900 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 dark:bg-zinc-900/90 dark:text-zinc-400 dark:ring-white/10 dark:hover:text-white"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${EXPAND_ICON}</svg></button>
+</div>`;
 }
 
 // Pinned like the Tailwind CDN. Loaded only on pages with a diagram. Live reload is a
@@ -58,6 +68,47 @@ function mermaidBlock(code) {
 // pin it with an integrity check.
 const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
 
+// Pan and zoom for the full-screen overlay. Pinned the same way, and imported only when
+// a diagram is first expanded, so a page that's only read never fetches it.
+const PANZOOM_URL = "https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.es.js";
+
+// null draws a divider between the export buttons and the zoom ones. The zoom ones
+// start disabled: they do nothing until Panzoom has loaded.
+const OVERLAY_TOOLS = [
+  ["data-copy-source", "Copy source", '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>'],
+  ["data-download", "Download SVG", '<path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/>'],
+  null,
+  ["data-zoom-out data-zoom-control", "Zoom out", '<path d="M3.5 8h9"/>'],
+  ["data-zoom-in data-zoom-control", "Zoom in", '<path d="M8 3.5v9M3.5 8h9"/>'],
+  ["data-zoom-reset data-zoom-control", "Reset zoom", '<path d="M2.75 8a5.25 5.25 0 1 0 1.6-3.8M2.75 2.75v2.5h2.5"/>'],
+  null,
+  ["data-close", "Close", '<path d="m4 4 8 8M12 4l-8 8"/>'],
+];
+
+// Shown on Copy source for a moment once the clipboard has it.
+const CHECK_ICON = '<path d="m3.5 8.5 3 3 6-7"/>';
+
+function toolIcon(icon) {
+  return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4">${icon}</svg>`;
+}
+
+// One dialog per page, filled with a copy of whichever diagram was expanded.
+// TODO(LAR-569): w-screen overflows by a classic scrollbar's width; the overlay
+// script also revokes the download URL too soon and never retries a failed Panzoom.
+function overlayDialog() {
+  const tools = OVERLAY_TOOLS.map((tool) => {
+    if (!tool) return '<span aria-hidden="true" class="mx-1 h-5 w-px bg-zinc-900/10 dark:bg-white/10"></span>';
+    const [attrs, label, icon] = tool;
+    const disabled = attrs.includes("data-zoom-control") ? " disabled" : "";
+    return `<button type="button" ${attrs}${disabled} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white">${toolIcon(icon)}</button>`;
+  }).join("");
+  return `<dialog data-diagram-dialog aria-label="Diagram" class="m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-white p-0 text-zinc-900 backdrop:bg-zinc-950/60 dark:bg-zinc-950 dark:text-zinc-100">
+<div class="flex h-12 items-center justify-end gap-1 border-b border-zinc-900/10 px-3 dark:border-white/10">${tools}</div>
+<div data-stage class="absolute inset-x-0 bottom-0 top-12 overflow-hidden"><div data-zoom class="h-full w-full p-6"></div></div>
+</dialog>`;
+}
+
+// TODO(LAR-567): unit-test the overlay's reopen()/readSaved() rules in the same stub.
 // The rendering logic is a plain inline script, not part of the module, so the tests
 // can run it in a stub DOM; a module importing from a CDN can't run there. The module
 // only imports mermaid and hands it over.
@@ -102,6 +153,193 @@ window.browseMermaid = function (mermaid) {
   new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ["class"] });
   return schedule();
 };
+</script>
+${overlayDialog()}
+<script data-browse-diagram-overlay>
+// The full-screen view. Expanding copies the rendered SVG into the dialog and lets it
+// fill the stage; preserveAspectRatio (meet, the default) keeps it whole, which is the
+// fitted view, and Panzoom's reset returns to it. The zoom buttons are enabled only
+// while Panzoom is attached, so they never look usable while doing nothing. The copy
+// keeps mermaid's ids, so the <style> inside it (scoped by #id) still applies; the
+// duplicates are harmless here.
+// After a theme redraw (browse:mermaid-rendered) an open overlay re-copies, keeping
+// its zoom, since Panzoom transforms the wrapper rather than the SVG.
+//
+// Copy source hands back the fence as written, from the stash browseMermaid keeps (the
+// <pre> itself holds the SVG by then). Download SVG saves the page's own SVG, not the
+// overlay's 100%-sized copy, sized to its viewBox and given the screen's background, so
+// the file opens at full size and a dark-theme diagram stays readable.
+//
+// Saving the file reloads the whole page, which would close the overlay. So an open
+// overlay is remembered in sessionStorage (position, source and diagram count), and the
+// first render after a reload reopens it: on the diagram with the same source, which
+// follows one pushed down by a new diagram above it, else on the one at the same
+// position if the count hasn't changed, which follows the one being edited, else not
+// at all. The entry stays until that render has decided, so a second reload before it
+// (a double save) still restores. Only a reload restores it; arriving at the page any
+// other way finds the entry, drops it and stays closed.
+(function () {
+  var dialog = document.querySelector("[data-diagram-dialog]");
+  var stage = dialog.querySelector("[data-stage]");
+  var zoom = dialog.querySelector("[data-zoom]");
+  var pz = null;
+  var loading = null;
+  var opener = null;
+  var index = -1;
+  function loadPanzoom() {
+    if (!loading) loading = import("${PANZOOM_URL}").then(function (m) { return m.default; });
+    return loading;
+  }
+  var copyButton = dialog.querySelector("[data-copy-source]");
+  var copyIcon = copyButton.innerHTML;
+  var copyTimer = null;
+  var KEY = "browse:diagram:" + location.pathname;
+  var restore = readSaved();
+  // Storage can throw (blocked site data); losing the restore is fine.
+  function readSaved() {
+    try {
+      var raw = sessionStorage.getItem(KEY);
+      var nav = performance.getEntriesByType("navigation")[0];
+      if (raw && nav && nav.type === "reload") return JSON.parse(raw);
+      sessionStorage.removeItem(KEY);
+    } catch (err) {
+      forget(); // unreadable (or storage blocked, where this throws too and is caught)
+    }
+    return null;
+  }
+  function remember() {
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify({
+        index: index,
+        count: document.querySelectorAll("[data-diagram]").length,
+        source: current().dataset.mermaidSource,
+      }));
+    } catch (err) {}
+  }
+  function forget() {
+    try { sessionStorage.removeItem(KEY); } catch (err) {}
+  }
+  function reopen(saved) {
+    var sources = [].map.call(document.querySelectorAll("pre.mermaid"), function (pre) { return pre.dataset.mermaidSource; });
+    var at = sources[saved.index] === saved.source ? saved.index : sources.indexOf(saved.source);
+    if (at < 0 && sources.length === saved.count) at = saved.index;
+    // Nothing to reopen on, or nothing drawn there: drop the entry, or a later reload
+    // would find it and reopen out of the blue.
+    if (at < 0 || !open(document.querySelectorAll("[data-expand]")[at])) forget();
+  }
+  function current() {
+    var frame = document.querySelectorAll("[data-diagram]")[index];
+    return frame ? frame.querySelector("pre.mermaid") : null;
+  }
+  function relabel(button, label, icon) {
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.innerHTML = icon;
+  }
+  function resetCopy() {
+    clearTimeout(copyTimer);
+    relabel(copyButton, "Copy source", copyIcon);
+  }
+  function fileName() {
+    var page = decodeURIComponent(location.pathname.split("/").pop()).replace(/\\.(md|markdown)$/i, "");
+    return (page || "page") + "-diagram-" + (index + 1) + ".svg";
+  }
+  function cloneSized(svg, width, height) {
+    var copy = svg.cloneNode(true);
+    copy.removeAttribute("style"); // mermaid's max-width only makes sense in the column
+    if (width) {
+      copy.setAttribute("width", width);
+      copy.setAttribute("height", height);
+    }
+    return copy;
+  }
+  function zoomControls(enabled) {
+    [].forEach.call(dialog.querySelectorAll("[data-zoom-control]"), function (b) { b.disabled = !enabled; });
+  }
+  function show() {
+    var pre = current();
+    var svg = pre && pre.querySelector("svg");
+    zoom.textContent = "";
+    if (!svg) return false;
+    zoom.appendChild(cloneSized(svg, "100%", "100%"));
+    return true;
+  }
+  function open(button) {
+    opener = button;
+    index = [].indexOf.call(document.querySelectorAll("[data-expand]"), button);
+    if (!show()) return false; // not rendered yet: nothing to show
+    dialog.showModal();
+    remember();
+    loadPanzoom().then(function (Panzoom) {
+      if (!dialog.open || pz) return;
+      pz = Panzoom(zoom, { minScale: 0.5, maxScale: 12, step: 0.3, cursor: "grab" });
+      stage.addEventListener("wheel", pz.zoomWithWheel);
+      zoomControls(true);
+    }, function (err) {
+      // Offline or blocked: the fitted diagram still shows, without pan and zoom.
+      console.error("browse: pan and zoom unavailable", err);
+    });
+    return true;
+  }
+  dialog.addEventListener("close", function () {
+    if (pz) {
+      stage.removeEventListener("wheel", pz.zoomWithWheel);
+      pz.destroy();
+      pz = null;
+    }
+    zoomControls(false);
+    zoom.removeAttribute("style"); // Panzoom leaves its transform behind
+    zoom.textContent = "";
+    resetCopy();
+    forget();
+    index = -1;
+    if (opener) opener.focus();
+  });
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest("[data-expand]");
+    if (button) open(button);
+  });
+  copyButton.addEventListener("click", function () {
+    var pre = current();
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.dataset.mermaidSource).then(function () {
+      relabel(copyButton, "Copied", ${JSON.stringify(toolIcon(CHECK_ICON))});
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(resetCopy, 1500);
+    }, function (err) {
+      console.error("browse: couldn't copy the diagram source", err);
+    });
+  });
+  dialog.querySelector("[data-download]").addEventListener("click", function () {
+    var pre = current();
+    var svg = pre && pre.querySelector("svg");
+    if (!svg) return;
+    var box = (svg.getAttribute("viewBox") || "").split(/[\\s,]+/);
+    var copy = box.length === 4 ? cloneSized(svg, box[2], box[3]) : cloneSized(svg);
+    copy.style.backgroundColor = getComputedStyle(dialog).backgroundColor;
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(copy);
+    var url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml" }));
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = fileName();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  });
+  dialog.querySelector("[data-close]").addEventListener("click", function () { dialog.close(); });
+  dialog.querySelector("[data-zoom-in]").addEventListener("click", function () { if (pz) pz.zoomIn(); });
+  dialog.querySelector("[data-zoom-out]").addEventListener("click", function () { if (pz) pz.zoomOut(); });
+  dialog.querySelector("[data-zoom-reset]").addEventListener("click", function () { if (pz) pz.reset(); });
+  window.addEventListener("browse:mermaid-rendered", function () {
+    if (dialog.open) return show();
+    if (restore) {
+      var saved = restore;
+      restore = null;
+      reopen(saved);
+    }
+  });
+})();
 </script>
 <script type="module">
 import mermaid from "${MERMAID_URL}";
@@ -685,6 +923,7 @@ export async function main(args = process.argv.slice(2)) {
       return;
     }
     const url = new URL(req.url, `http://${req.headers.host}`);
+    // TODO(LAR-565): a malformed escape (/%E0.md) throws here and kills the server.
     const pathname = decodeURIComponent(url.pathname);
 
     // SSE endpoint
