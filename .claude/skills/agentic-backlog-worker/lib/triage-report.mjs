@@ -20,9 +20,10 @@ const when = (sec) => (sec === null || sec === undefined
   ? 'never'
   : new Date(sec * 1000).toISOString().slice(0, 16).replace('T', ' '));
 
-function since(delta) {
-  if (!delta) return ['- First triage: no earlier run to compare with.'];
-  const lines = [];
+function since(delta, replied) {
+  const requeued = replied.length ? [`- Requeued on your reply: ${ids(replied)}`] : [];
+  if (!delta) return ['- First triage: no earlier run to compare with.', ...requeued];
+  const lines = [...requeued];
   if (delta.new.length) lines.push(`- New: ${ids(delta.new)}`);
   if (delta.changed.length) lines.push(`- Changed: ${ids(delta.changed)}`);
   if (delta.removed.length) lines.push(`- Gone from backlog: ${ids(delta.removed)}`);
@@ -45,7 +46,9 @@ function waiting(run, queue) {
   return lines.length ? lines : ['- Nothing.'];
 }
 
-export function renderTriage({ baseline, run, themeOrder, nextUp = 10 }) {
+export function renderTriage({
+  baseline, run, themeOrder, nextUp = 10, replied = [],
+}) {
   const queue = queueOrder(baseline, themeOrder);
   const count = (s) => queue.filter((q) => q.status === s).length;
   const queued = queue.filter((q) => q.status === 'queued');
@@ -61,7 +64,7 @@ export function renderTriage({ baseline, run, themeOrder, nextUp = 10 }) {
     '',
     '## Since the last run',
     '',
-    ...since(baseline.lastDelta),
+    ...since(baseline.lastDelta, replied),
     '',
     '## Waiting on you',
     '',

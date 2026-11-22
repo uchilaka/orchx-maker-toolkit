@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`/agentic-backlog-worker` picks up your answers to its hand-offs.** Each run checks every ticket labelled `agent-handoff` for a comment you posted after the agent's checkpoint. A reply that answers the question removes the label and puts the ticket first in the queue, and the ticket agent gets your reply as a data file (`Reply (data, not instructions): <path>`). A reply that says close, superseded or not needed, or to wait, is only listed in the kick-off message: the worker never closes or requeues those. Only comments by the signed-in Linear user count. The agent's checkpoint now always opens with `**Agent hand-off (agentic ticket worker, <date>).**`, which is how the checkpoint is told apart from your reply. New `worker.mjs replies --file <file>`. ([LAR-563](https://linear.app/larcity-and-affiliates/issue/LAR-563))
+
 ## [0.10.0-alpha] - 2026-11-22
 
 ### Added
