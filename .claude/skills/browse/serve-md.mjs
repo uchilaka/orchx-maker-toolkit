@@ -53,6 +53,7 @@ const EXPAND_ICON = '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 
 // pinned to the outer one, stays in its corner. The button is invisible until the
 // diagram is hovered or the button has keyboard focus; where nothing can hover
 // (touch screens) it's always shown.
+// TODO(LAR-570): reuse toolIcon() for the button's SVG wrapper.
 function mermaidBlock(code) {
   return `<div data-diagram class="not-prose group relative my-6 rounded-xl ring-1 ring-zinc-900/10 dark:ring-white/10">
 <div data-diagram-scroll class="overflow-x-auto p-4"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>
@@ -92,6 +93,8 @@ function toolIcon(icon) {
 }
 
 // One dialog per page, filled with a copy of whichever diagram was expanded.
+// TODO(LAR-569): w-screen overflows by a classic scrollbar's width; the overlay
+// script also revokes the download URL too soon and never retries a failed Panzoom.
 function overlayDialog() {
   const tools = OVERLAY_TOOLS.map((tool) => {
     if (!tool) return '<span aria-hidden="true" class="mx-1 h-5 w-px bg-zinc-900/10 dark:bg-white/10"></span>';
@@ -105,6 +108,7 @@ function overlayDialog() {
 </dialog>`;
 }
 
+// TODO(LAR-567): unit-test the overlay's reopen()/takeSaved() rules in the same stub.
 // The rendering logic is a plain inline script, not part of the module, so the tests
 // can run it in a stub DOM; a module importing from a CDN can't run there. The module
 // only imports mermaid and hands it over.
@@ -915,6 +919,7 @@ export async function main(args = process.argv.slice(2)) {
       return;
     }
     const url = new URL(req.url, `http://${req.headers.host}`);
+    // TODO(LAR-565): a malformed escape (/%E0.md) throws here and kills the server.
     const pathname = decodeURIComponent(url.pathname);
 
     // SSE endpoint

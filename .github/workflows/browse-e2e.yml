@@ -41,6 +41,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('.claude/skills/browse/test/e2e/package-lock.json') }}
       # System libraries Chromium needs; not cached, since apt installs them outside ~.
+      # TODO(LAR-568): npm ci runs here and again in the mise task.
       - name: Install Chromium's system dependencies
         working-directory: .claude/skills/browse/test/e2e
         run: npm ci --no-audit --no-fund && npx playwright install-deps chromium

@@ -20,6 +20,7 @@ async function open(page, nth = 0) {
   await expect(dialog(page)).toBeVisible();
 }
 
+// TODO(LAR-566): dark-theme background, height, file name variants, clipboard failure.
 test("Download SVG saves the expanded diagram as a standalone SVG", async ({ page }) => {
   await open(page);
   const inline = await page.locator("pre.mermaid svg").first().evaluate((el) => ({

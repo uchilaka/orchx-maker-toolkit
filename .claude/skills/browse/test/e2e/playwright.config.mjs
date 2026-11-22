@@ -18,6 +18,7 @@ export default defineConfig({
   // tests mid-run.
   workers: 1,
   forbidOnly: !!process.env.CI,
+  // TODO(LAR-568): a retry hides flaky tests, and the suite needs the live CDNs.
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
