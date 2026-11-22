@@ -1020,11 +1020,13 @@ function replies(opts) {
     const { checkpoint, replies: found } = findReplies({ comments: tk.comments, me: input.me, handedOffAt: times[tk.id] ?? null });
     if (checkpoint === null) { out.noCheckpoint.push(tk.id); continue; }
     if (!found.length) { out.waiting.push(tk.id); continue; }
-    const text = found.map((c) => c.body).join('\n\n');
-    const repliedAt = found[found.length - 1].createdAt;
-    const intent = replyIntent(text);
+    // The latest reply decides: "wait until PR 300 merges" followed by "merged, go with A" is a
+    // go-ahead. Reading all replies together would hold that ticket forever (LAR-359's shape).
+    const latest = found[found.length - 1];
+    const repliedAt = latest.createdAt;
+    const intent = replyIntent(latest.body);
     if (intent !== 'answer') {
-      out[intent].push({ id: tk.id, title: clean(tk.title), repliedAt: clean(repliedAt), excerpt: clean(text).slice(0, EXCERPT_MAX) });
+      out[intent].push({ id: tk.id, title: clean(tk.title), repliedAt: clean(repliedAt), excerpt: clean(latest.body).slice(0, EXCERPT_MAX) });
       continue;
     }
     const file = path.join(stateDir(), REPLIES_DIR, `${tk.id}.md`);

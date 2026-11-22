@@ -375,3 +375,20 @@ test('replies: a requeue is reclassified even when no merge has run since the ha
   }]);
   assert.deepStrictEqual(box.run(['delta', '--fetched', fetched]).json.classify, ['LAR-9']);
 });
+
+test('replies: the latest reply decides, so "wait" then "go ahead" requeues (LAR-359 follow-up)', () => {
+  const box = sandbox();
+  const f = box.file('h.json', handoffs([
+    T('LAR-3', [
+      C(CHECKPOINT, '2026-11-20T08:00:00Z'),
+      C('Decision: fail the boot. Leaving agent-handoff on until that PR merges.', '2026-11-20T16:00:00Z'),
+      C('PR 300 merged. Go ahead with A.', '2026-11-25T09:00:00Z'),
+    ]),
+  ]));
+  const r = box.run(['replies', '--file', f]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual(r.json.requeue.map((e) => e.id), ['LAR-3']);
+  assert.deepStrictEqual(r.json.hold, []);
+  // The agent still gets the whole exchange, the decision included.
+  assert.match(readFileSync(r.json.requeue[0].file, 'utf8'), /fail the boot[\s\S]*Go ahead with A/);
+});
