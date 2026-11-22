@@ -20,6 +20,8 @@ usage() {
   exit 2
 }
 
+# TODO(LAR-557): test the argument shapes (uninstall --force, --force install)
+# and dangling or relative links.
 force=
 case "$#:${1:-}:${2:-}" in
   1:install: | 1:uninstall:) action="$1" ;;

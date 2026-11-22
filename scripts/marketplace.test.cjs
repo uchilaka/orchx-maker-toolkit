@@ -17,8 +17,10 @@ const hooksOf = (p) => Object.entries(p.hooks || {}).flatMap(([event, matchers])
 
 // The script a hook runs: its first word, with ${CLAUDE_PLUGIN_ROOT} as the
 // plugin's source folder.
+// The script a hook command runs: its first word, or the second when the
+// command starts with `bash` (openv's guard, so it runs without the exec bit).
 const scriptOf = (p, command) => {
-  const first = command.match(/^("[^"]*"\S*|\S+)/)[1].replace(/"/g, '');
+  const first = command.replace(/^bash\s+/, '').match(/^("[^"]*"\S*|\S+)/)[1].replace(/"/g, '');
   return path.join(ROOT, p.source, first.replace('${CLAUDE_PLUGIN_ROOT}', ''));
 };
 
@@ -71,7 +73,7 @@ test('no skill ships in two plugins', () => {
 const skillsWithoutHooks = (p) => {
   const scripts = hooksOf(p).map((h) => scriptOf(p, h.command));
   return (p.skills || []).filter((s) => {
-    const dir = path.join(ROOT, p.source, s) + path.sep;
+    const dir = path.join(ROOT, p.source, s, path.sep);
     return !scripts.some((script) => script.startsWith(dir));
   });
 };
@@ -89,6 +91,10 @@ test('the hook-plugin rule rejects a skill no hook script lives in', () => {
   assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv'], hooks: hook(guard) }), []);
   assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/browse'], hooks: hook(guard) }), ['./.claude/skills/browse']);
   assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv', './.claude/skills/browse'], hooks: hook(guard) }), ['./.claude/skills/browse']);
+  // A trailing slash on the skill is the same folder (PR #52, L5).
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv/'], hooks: hook(guard) }), []);
+  // So is a command that runs the script through bash.
+  assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/openv'], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `bash "\${CLAUDE_PLUGIN_ROOT}"/${guard}` }] }] } }), []);
   // A sibling folder whose name starts with the skill's isn't inside it.
   assert.deepEqual(skillsWithoutHooks({ source: './', skills: ['./.claude/skills/open'], hooks: hook(guard) }), ['./.claude/skills/open']);
 });
@@ -121,10 +127,13 @@ test('the plugin hook and browse/install/hooks.json run the same command', () =>
 });
 
 // The guard must block when it can't run. Claude Code blocks a tool call only
-// on exit 2, so a missing or non-executable script (127, 126) would let every
-// command through; `|| exit 2` turns those into a block. The guard itself
-// exits only 0 or 2, so nothing it allows is blocked. Both install paths
-// register the same command (LAR-528).
+// on exit 2, so a missing script (127) would let every command through. The
+// fallback after `||` blocks only what the guard covers (commands naming
+// openv, pass-cli or pass:), so a broken install doesn't block the commands
+// that repair it (PR #52, L1). `bash` runs the script without its exec bit
+// (L2). Monitor runs shell commands too (L3). The guard itself exits only 0
+// or 2, so nothing it allows is blocked. Both install paths register the same
+// command (LAR-528); hook_command.test.mjs runs it.
 const openvGuard = () => {
   const p = plugins.find((p) => p.name === 'openv');
   const pre = (p.hooks && p.hooks.PreToolUse) || [];
@@ -132,11 +141,11 @@ const openvGuard = () => {
   return { p, pre, install };
 };
 
-test('openv registers its guard as a PreToolUse(Bash) hook that blocks when it can\'t run', () => {
+test('openv registers its guard as a PreToolUse(Bash|Monitor) hook that blocks when it can\'t run', () => {
   const { pre } = openvGuard();
   assert.equal(pre.length, 1);
-  assert.equal(pre[0].matcher, 'Bash');
-  assert.equal(pre[0].hooks[0].command, '"${CLAUDE_PLUGIN_ROOT}"/.claude/skills/openv/hooks/guard-secrets.sh || exit 2');
+  assert.equal(pre[0].matcher, 'Bash|Monitor');
+  assert.match(pre[0].hooks[0].command, /^bash "\$\{CLAUDE_PLUGIN_ROOT\}"\/\.claude\/skills\/openv\/hooks\/guard-secrets\.sh \|\| \{/);
 });
 
 test('the openv plugin hook and openv/install/hooks.json register the same guard', () => {
@@ -147,5 +156,5 @@ test('the openv plugin hook and openv/install/hooks.json register the same guard
   const local = install.PreToolUse[0];
   assert.equal(local.matcher, plugin.matcher);
   assert.equal(tail(local.hooks[0].command), tail(plugin.hooks[0].command));
-  assert.match(local.hooks[0].command, /^"\{\{SKILL_DIR\}\}\/hooks\/guard-secrets\.sh"/);
+  assert.match(local.hooks[0].command, /^bash "\{\{SKILL_DIR\}\}\/hooks\/guard-secrets\.sh"/);
 });

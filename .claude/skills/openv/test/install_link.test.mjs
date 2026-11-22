@@ -56,6 +56,21 @@ test('install leaves a foreign symlink alone unless --force is given', () => {
   assert.strictEqual(readlinkSync(s.link), path.join(WORKTREE_ROOT, '.claude/skills/openv/bin/openv'));
 });
 
+// Review of PR #52, T1: only a link into an openv skill folder counts as
+// openv. Anything else named openv, or a folder that only starts with
+// "openv", is foreign.
+for (const target of ['/usr/local/bin/openv', '/opt/x/.claude/skills/openv-fork/bin/openv']) {
+  test(`install treats a link to ${target} as foreign`, () => {
+    const s = sandbox();
+    mkdirSync(s.binDir, { recursive: true });
+    symlinkSync(target, s.link);
+    const r = s.run('install');
+    assert.strictEqual(r.status, 1, r.stdout);
+    assert.match(r.stderr, /--force/);
+    assert.strictEqual(readlinkSync(s.link), target);
+  });
+}
+
 test('install re-points a link to another openv copy without --force', () => {
   const s = sandbox();
   mkdirSync(s.binDir, { recursive: true });

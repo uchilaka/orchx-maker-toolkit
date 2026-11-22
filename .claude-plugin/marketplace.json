@@ -48,9 +48,9 @@
       "hooks": {
         "PreToolUse": [
           {
-            "matcher": "Bash",
+            "matcher": "Bash|Monitor",
             "hooks": [
-              { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/.claude/skills/openv/hooks/guard-secrets.sh || exit 2" }
+              { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/.claude/skills/openv/hooks/guard-secrets.sh || { s=$?; [ \"$s\" = 2 ] && exit 2; i=$(cat); c=${i#*'\"command\":\"'}; c=${c%%'\",\"'*}; case $c in *openv*|*pass-cli*|*pass:*) echo \"openv guard couldn't run (exit $s), so commands naming openv, pass-cli or pass: are blocked. Reinstall openv, or remove its hook from ~/.claude/settings.json\" >&2; exit 2;; esac; }" }
             ]
           }
         ]

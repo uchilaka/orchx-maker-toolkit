@@ -24,7 +24,7 @@ a logged-in `pass-cli` can call `pass-cli item view` directly, encode a value in
 
 ## The command guard
 
-A PreToolUse(Bash) hook, `hooks/guard-secrets.sh`, blocks commands that would print a value: `openv export`, `pass-cli item view`, `pass-cli inject`, `--no-masking` and the rest of `hooks/deny.tsv`. A blocked command fails with a message that points to `openv run`; rewrite the command that way rather than working around the block. The `openv` plugin installs the hook, and so does `mise run install:claude-global openv`, which asks first. It needs `jq`: without it, every command naming `openv` or `pass-cli` is blocked.
+A PreToolUse hook on Bash and Monitor, `hooks/guard-secrets.sh`, blocks commands that would print a value: `openv export`, `pass-cli item view`, `pass-cli inject`, `--no-masking` and the rest of `hooks/deny.tsv`. A blocked command fails with a message that points to `openv run`; rewrite the command that way rather than working around the block. The `openv` plugin installs the hook, and so does `mise run install:claude-global openv`, which asks first. It needs `jq`: without it, every command naming `openv` or `pass-cli` is blocked. The same goes when the hook can't find its script (a moved checkout, say): the block message says the guard couldn't run, and other commands still work, so re-run the install or remove the hook from `~/.claude/settings.json`.
 
 <!-- TODO(LAR-527): say masking covers stdout/stderr and whole values only (files, partial values). -->
 
