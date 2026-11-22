@@ -136,9 +136,18 @@ scenario. Evidence is quoted, not paraphrased.
 
 ### 5. Close out
 
-`close_page` on pages you opened. Reply with the result line and the report path. Offer
-`/browse` to view it. If the run fed a PR, offer to cite the report in the draft PR
-checkpoint.
+1. `close_page` on pages you opened.
+2. **Close the test browser:** `${CLAUDE_SKILL_DIR}/scripts/close-test-browser.sh`. Every
+   session ends this way, even a failed run. The test browser is the same app as the
+   user's own Chrome. While it stays open, macOS sends every link opened from the terminal
+   (`/browse` included) to it, because it is the older instance. The MCP relaunches it on
+   the next tool call. A `WARN` line means it didn't exit: pass that line on.
+   The `SessionEnd` hook `${CLAUDE_SKILL_DIR}/scripts/chrome-test-profile-cleanup.py` is the
+   backstop for sessions that crash or end before this step: it stops this session's test
+   Chrome and MCP server, and any orphaned ones. Register it in `~/.claude/settings.json`
+   (`check-setup.sh` warns when it isn't); `--dry-run` lists what it would stop.
+3. Reply with the result line and the report path. Offer `/browse` to view it. If the run
+   fed a PR, offer to cite the report in the draft PR checkpoint.
 
 ## Maintaining this skill
 

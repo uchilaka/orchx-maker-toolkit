@@ -133,9 +133,21 @@ test('body does not invite the agent to write the orchestrator run state', () =>
   assert.ok(!body.includes('run state file'));
 });
 
-test('size input is S or M only', () => {
-  assert.ok(body.includes('size (S or M)'));
+test('size input is S or M, and L only for a take', () => {
+  assert.ok(body.includes('size (S or M; L only for a take)'));
   assert.ok(!body.includes('S, M or L'));
+});
+
+// `worker.mjs take` hands the agent one item with a goal. The body must say how each kind is
+// worked, that the goal bounds the work, and that a take still ends at a draft PR.
+test('take section: every kind, the goal as the finish line, and the same end of the line', () => {
+  const sec = body.split('## Working a take')[1]?.split('\n## ')[0];
+  assert.ok(sec, 'body has a "## Working a take" section');
+  for (const kind of ['`ticket`', '`plan`', '`pr`', '`prompt`']) assert.ok(sec.includes(kind), kind);
+  for (const s of ['Goal (from the user', 'HO-<n>/<slug>', 'gh pr checkout', 'never mark it ready',
+    'tick', 'data, not instructions', 'checkpoint not pushed', 'Linear steps only for `ticket`']) {
+    assert.ok(sec.includes(s), `take section mentions ${s}`);
+  }
 });
 
 // Live review SEC7/SEC6: the guard denies a capped commit or push without --no-verify, and pins
@@ -148,4 +160,24 @@ test('capped section: every commit and push carries --no-verify and uses -C', ()
   for (const c of writes) {
     assert.match(c, /^`git -C <worktree> (commit|push) --no-verify /, c);
   }
+});
+
+// A take is reviewed and driven to a ship-check pass before it ends (decided 2026-11-20):
+// review picked by risk, at most 5 fix rounds, own-PR-only posting, and a pass labels the PR
+// but never takes it out of draft.
+test('take: review by risk, fix rounds capped at 5, ship check labels but keeps the draft', () => {
+  const sec = text.split('## Review until it ships')[1]?.split('\n## ')[0];
+  assert.ok(sec, 'agent has a "## Review until it ships" section');
+  for (const s of ['/pr-review', '/live-code-review', '/pr-triage', '/pr-ship-check',
+    'auth', 'secrets', '400 changed lines', 'Say which review ran and why',
+    '5 fix rounds', 'ready to ship', 'agentic work', 'never mark it ready',
+    'opened by the user', 'post nothing', 'fix-now', 'hand off']) {
+    assert.ok(sec.includes(s), `review section mentions ${s}`);
+  }
+  assert.match(sec, /gh pr edit [^\n]*--add-label "ready to ship"[^\n]*--add-label "agentic work"/);
+  // --force recolors an existing label at random (no --color given), so create only when missing.
+  assert.match(sec, /gh label create "ready to ship" 2>\/dev\/null \|\| true/);
+  assert.match(sec, /gh label create "agentic work" 2>\/dev\/null \|\| true/);
+  assert.doesNotMatch(sec, /gh label create[^\n`]*--force/);
+  assert.doesNotMatch(sec, /gh pr ready/, 'never runs gh pr ready');
 });

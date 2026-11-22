@@ -103,7 +103,7 @@ install_hooks() {
 remove_hooks() {
   local name="$1" frag="$2/install/hooks.json" dest="$3"
   [ -f "$frag" ] || return 0
-  node "$hooks_helper" remove "$frag" "$dest" || fail "$name: its hooks were not removed"
+  node "$hooks_helper" remove "$frag" "$dest" || { fail "$name: its hooks were not removed"; return 1; }
 }
 
 # Physical path of an existing file, following symlinks; empty if it doesn't resolve.
@@ -166,6 +166,15 @@ same_target() {
     here="$(resolve "$1")"; [ -n "$here" ] && [ "$here" = "$(resolve "$2")" ]
   else
     here="$(resolve_file "$1")"; [ -n "$here" ] && [ "$here" = "$(resolve_file "$2")" ]
+  fi
+}
+
+# owns_skill <src> <dest>: true when dest is absent, or a symlink unlink_item would remove.
+owns_skill() {
+  if [ -L "$2" ]; then
+    [ "$(readlink "$2")" = "$1" ] || same_target "$2" "$1" skill
+  else
+    [ ! -e "$2" ]
   fi
 }
 
@@ -232,9 +241,10 @@ for name in "${names[@]}"; do
   else
     remove_agents "$name" "$src"
     # Hooks go with the link, and also when nothing is installed: a hook left behind would
-    # run a script that isn't there.
+    # run a script that isn't there. They go first, so if settings.json can't be edited
+    # the link stays and the hook still finds its script.
+    if owns_skill "$src" "$dest" && ! remove_hooks "$name" "$src" "$dest"; then continue; fi
     unlink_item "$src" "$dest" "$name:" skill
-    if [ "$item_ok" = yes ]; then remove_hooks "$name" "$src" "$dest"; fi
   fi
 done
 

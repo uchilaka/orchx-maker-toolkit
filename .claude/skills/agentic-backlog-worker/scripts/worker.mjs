@@ -7,6 +7,7 @@
 // ABW_HEARTBEAT_S shorten the two loops' intervals.
 import {
   readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, realpathSync, statSync, renameSync,
+  readdirSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -222,14 +223,14 @@ async function windowCmd(opts) {
 // .claude/skills/agentic-backlog-worker, plus its main checkout when that root is a worktree.
 // Each one and its `<checkout>-worktrees/` sibling are off-limits as ticket repos (live review
 // SEC4). Throws when the root can't be resolved, which checkRepo turns into a rejection.
-const inToolkit = (real, dir) => within(real, dir) || within(real, `${dir}-worktrees`);
+const inCheckout = (real, dir) => within(real, dir) || within(real, `${dir}-worktrees`);
 
 // True when `repo` resolves into a toolkit checkout or its worktrees. A path that doesn't resolve
 // is not the toolkit; `start`'s own checks reject it with a better message.
 function isToolkitPath(repo) {
   let real;
   try { real = realpathSync(repo); } catch { return false; }
-  return toolkitCheckouts().some((dir) => inToolkit(real, dir));
+  return toolkitCheckouts().some((dir) => inCheckout(real, dir));
 }
 
 function toolkitCheckouts() {
@@ -245,6 +246,14 @@ function toolkitCheckouts() {
 }
 
 const within = (p, dir) => p === dir || p.startsWith(dir + path.sep);
+
+// config denied_repos, resolved like the repo itself. A denied path that no longer exists still
+// denies its own spelling, so deleting an archived checkout doesn't quietly lift the ban.
+function deniedRepos() {
+  return loadConfig().denied_repos.map((dir) => {
+    try { return realpathSync(dir); } catch { return path.resolve(dir); }
+  });
+}
 
 // The repo is where a ticket agent will create worktrees and run code, and the triage that names
 // it read untrusted ticket text. So it must resolve (symlinks and `..` included) to a git repo
@@ -269,8 +278,11 @@ function checkRepo(id, repo, status) {
   } catch {
     fail(`${id}: cannot locate the agentic-backlog-worker toolkit checkout to exclude it`);
   }
-  if (toolkit.some((dir) => inToolkit(real, dir))) {
+  if (toolkit.some((dir) => inCheckout(real, dir))) {
     fail(`${id}: repo is the agentic-backlog-worker toolkit checkout or one of its worktrees: ${repo}`);
+  }
+  if (deniedRepos().some((dir) => inCheckout(real, dir))) {
+    fail(`${id}: repo is denied by config denied_repos (it or its worktrees): ${repo}`);
   }
   // A directory, not just present: a linked worktree's .git is a file, and the ticket agent
   // would nest its own worktree inside it.
@@ -327,7 +339,11 @@ function start(opts) {
   } catch (err) {
     fail(`cannot read tickets: ${err.message}`);
   }
-  const tickets = carryForward(prev, validateTickets(list));
+  return openRun(carryForward(prev, validateTickets(list)));
+}
+
+// Saves a new active run holding `tickets`, with the window and usage at its start.
+function openRun(tickets) {
   const { t, usage } = context();
   const stashed = readWindowFile();
   const five = fresh5h(usage);
@@ -340,6 +356,83 @@ function start(opts) {
   saveRun(stateDir(), run);
   try { unlinkSync(path.join(stateDir(), WINDOW_FILE)); } catch { /* none stashed */ }
   return { id: run.id, tickets: tickets.length, window };
+}
+
+// --- take: one handed-off item with a goal ----------------------------------------------------
+
+const TAKE_KINDS = ['ticket', 'plan', 'pr', 'prompt'];
+// A take may be L: the user chose it, so triage's S-or-M rule does not apply. XL is split first.
+const TAKE_SIZES = ['S', 'M', 'L'];
+const GOAL_MAX = 500;
+const PR_REF = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]+$/;
+const TAKES_DIR = 'takes';
+// Non-Linear work gets an id in the ticket shape, so the guard's branch, worktree and checkpoint
+// rules (all keyed on ABC-123) hold for it unchanged.
+const HO_ID = /^HO-([0-9]+)\.json$/;
+
+function readableFile(ref, kind) {
+  let ok = false;
+  try { ok = statSync(ref).isFile(); } catch { /* missing */ }
+  if (!ok) fail(`${kind} ref is not a readable file: ${ref}`);
+}
+
+function takeRef(kind, ref) {
+  if (typeof ref !== 'string' || !ref) fail('ref is required');
+  if (kind === 'ticket' && !TICKET_ID.test(ref)) fail('ticket ref must look like ABC-123');
+  if (kind === 'pr' && !PR_REF.test(ref)) {
+    fail('pr ref must be a https://github.com/<owner>/<repo>/pull/<n> URL');
+  }
+  if (kind === 'plan') {
+    if (!path.isAbsolute(ref) || !ref.endsWith('.md')) fail('plan ref must be an absolute path to a .md file');
+    readableFile(ref, kind);
+  }
+  if (kind === 'prompt') {
+    readableFile(ref, kind);
+    // The ticket agent reads it from another cwd, so a relative path would not resolve there.
+    return path.resolve(ref);
+  }
+  return ref;
+}
+
+function nextHandoffId() {
+  let max = 0;
+  let names = [];
+  try { names = readdirSync(path.join(stateDir(), TAKES_DIR)); } catch { /* none yet */ }
+  for (const name of names) {
+    const m = HO_ID.exec(name);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `HO-${max + 1}`;
+}
+
+function take(opts) {
+  if (!opts.item) fail('usage: take --item <file.json>');
+  const prev = loadRun(stateDir());
+  if (prev?.active) fail('a run is already active: resume it, or stop it first');
+  let item;
+  try {
+    item = JSON.parse(readFileSync(opts.item, 'utf8'));
+  } catch (err) {
+    fail(`cannot read item: ${err.message}`);
+  }
+  if (!item || typeof item !== 'object' || Array.isArray(item)) fail('item must be a JSON object');
+  const { kind, goal, title, repo, size } = item;
+  if (!TAKE_KINDS.includes(kind)) fail(`kind must be one of ${TAKE_KINDS}`);
+  const ref = takeRef(kind, item.ref);
+  if (typeof goal !== 'string' || !goal.trim()) fail('goal is required');
+  if (goal.length > GOAL_MAX) fail(`goal is longer than ${GOAL_MAX} characters`);
+  if (!TAKE_SIZES.includes(size)) fail(`size must be one of ${TAKE_SIZES}`);
+  const id = kind === 'ticket' ? ref : nextHandoffId();
+  const [ticket] = validateTickets([{ id, title: String(title ?? ''), size, repo, status: 'queued' }]);
+  ticket.take = { kind, ref, goal: goal.trim() };
+  // Carried work keeps its place in the run file but goes after the take, which is the only
+  // ticket this run works.
+  const carried = carryForward(prev, []).filter((tk) => tk.id !== id);
+  const { t } = context();
+  writeJsonAtomic(path.join(stateDir(), TAKES_DIR), `${id}.json`,
+    { id, ...ticket.take, title: ticket.title, repo: ticket.repo, size, createdAt: t });
+  const opened = openRun([ticket, ...carried]);
+  return { id, kind, tickets: opened.tickets, runId: opened.id };
 }
 
 function findTicket(run, id) {
@@ -858,6 +951,7 @@ async function main(argv) {
       verdicts: { type: 'string' },
       seed: { type: 'boolean' },
       file: { type: 'string' },
+      item: { type: 'string' },
     },
   });
   const [cmd, arg, arg2] = positionals;
@@ -866,6 +960,7 @@ async function main(argv) {
     case 'set-reset': return setReset(arg);
     case 'window': return windowCmd(opts);
     case 'start': return start(opts);
+    case 'take': return take(opts);
     case 'afford': return afford(arg);
     case 'begin': return begin(arg);
     case 'finish': return finish(arg, opts);
