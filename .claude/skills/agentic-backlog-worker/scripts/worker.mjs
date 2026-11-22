@@ -224,14 +224,14 @@ async function windowCmd(opts) {
 // .claude/skills/agentic-backlog-worker, plus its main checkout when that root is a worktree.
 // Each one and its `<checkout>-worktrees/` sibling are off-limits as ticket repos (live review
 // SEC4). Throws when the root can't be resolved, which checkRepo turns into a rejection.
-const inToolkit = (real, dir) => within(real, dir) || within(real, `${dir}-worktrees`);
+const inCheckout = (real, dir) => within(real, dir) || within(real, `${dir}-worktrees`);
 
 // True when `repo` resolves into a toolkit checkout or its worktrees. A path that doesn't resolve
 // is not the toolkit; `start`'s own checks reject it with a better message.
 function isToolkitPath(repo) {
   let real;
   try { real = realpathSync(repo); } catch { return false; }
-  return toolkitCheckouts().some((dir) => inToolkit(real, dir));
+  return toolkitCheckouts().some((dir) => inCheckout(real, dir));
 }
 
 function toolkitCheckouts() {
@@ -247,6 +247,14 @@ function toolkitCheckouts() {
 }
 
 const within = (p, dir) => p === dir || p.startsWith(dir + path.sep);
+
+// config denied_repos, resolved like the repo itself. A denied path that no longer exists still
+// denies its own spelling, so deleting an archived checkout doesn't quietly lift the ban.
+function deniedRepos() {
+  return loadConfig().denied_repos.map((dir) => {
+    try { return realpathSync(dir); } catch { return path.resolve(dir); }
+  });
+}
 
 // The repo is where a ticket agent will create worktrees and run code, and the triage that names
 // it read untrusted ticket text. So it must resolve (symlinks and `..` included) to a git repo
@@ -271,8 +279,11 @@ function checkRepo(id, repo, status) {
   } catch {
     fail(`${id}: cannot locate the agentic-backlog-worker toolkit checkout to exclude it`);
   }
-  if (toolkit.some((dir) => inToolkit(real, dir))) {
+  if (toolkit.some((dir) => inCheckout(real, dir))) {
     fail(`${id}: repo is the agentic-backlog-worker toolkit checkout or one of its worktrees: ${repo}`);
+  }
+  if (deniedRepos().some((dir) => inCheckout(real, dir))) {
+    fail(`${id}: repo is denied by config denied_repos (it or its worktrees): ${repo}`);
   }
   // A directory, not just present: a linked worktree's .git is a file, and the ticket agent
   // would nest its own worktree inside it.
