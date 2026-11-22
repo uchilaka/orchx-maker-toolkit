@@ -47,12 +47,12 @@ function statusBadge(status) {
   return `<span class="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${cls}">${escapeHtml(status)}</span>`;
 }
 
+const EXPAND_ICON = '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/>';
+
 // The frame scrolls a wide diagram sideways in an inner box, so the expand button,
 // pinned to the outer one, stays in its corner. The button is invisible until the
 // diagram is hovered or the button has keyboard focus; where nothing can hover
 // (touch screens) it's always shown.
-const EXPAND_ICON = '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/>';
-
 function mermaidBlock(code) {
   return `<div data-diagram class="not-prose group relative my-6 rounded-xl ring-1 ring-zinc-900/10 dark:ring-white/10">
 <div data-diagram-scroll class="overflow-x-auto p-4"><pre class="mermaid">${escapeHtml(code.trimEnd())}</pre></div>
@@ -71,7 +71,8 @@ const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.es
 // a diagram is first expanded, so a page that's only read never fetches it.
 const PANZOOM_URL = "https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.es.js";
 
-// null draws a divider between the export buttons and the zoom ones.
+// null draws a divider between the export buttons and the zoom ones. The zoom ones
+// start disabled: they do nothing until Panzoom has loaded.
 const OVERLAY_TOOLS = [
   ["data-copy-source", "Copy source", '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>'],
   ["data-download", "Download SVG", '<path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/>'],
@@ -95,7 +96,8 @@ function overlayDialog() {
   const tools = OVERLAY_TOOLS.map((tool) => {
     if (!tool) return '<span aria-hidden="true" class="mx-1 h-5 w-px bg-zinc-900/10 dark:bg-white/10"></span>';
     const [attrs, label, icon] = tool;
-    return `<button type="button" ${attrs} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white">${toolIcon(icon)}</button>`;
+    const disabled = attrs.includes("data-zoom-control") ? " disabled" : "";
+    return `<button type="button" ${attrs}${disabled} aria-label="${label}" title="${label}" class="rounded-md p-2 text-zinc-500 transition hover:bg-zinc-900/5 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white">${toolIcon(icon)}</button>`;
   }).join("");
   return `<dialog data-diagram-dialog aria-label="Diagram" class="m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-white p-0 text-zinc-900 backdrop:bg-zinc-950/60 dark:bg-zinc-950 dark:text-zinc-100">
 <div class="flex h-12 items-center justify-end gap-1 border-b border-zinc-900/10 px-3 dark:border-white/10">${tools}</div>
@@ -152,8 +154,10 @@ ${overlayDialog()}
 <script data-browse-diagram-overlay>
 // The full-screen view. Expanding copies the rendered SVG into the dialog and lets it
 // fill the stage; preserveAspectRatio (meet, the default) keeps it whole, which is the
-// fitted view, and Panzoom's reset returns to it. The copy keeps mermaid's ids, so the
-// <style> inside it (scoped by #id) still applies; the duplicates are harmless here.
+// fitted view, and Panzoom's reset returns to it. The zoom buttons are enabled only
+// while Panzoom is attached, so they never look usable while doing nothing. The copy
+// keeps mermaid's ids, so the <style> inside it (scoped by #id) still applies; the
+// duplicates are harmless here.
 // After a theme redraw (browse:mermaid-rendered) an open overlay re-copies, keeping
 // its zoom, since Panzoom transforms the wrapper rather than the SVG.
 //
@@ -163,11 +167,13 @@ ${overlayDialog()}
 // the file opens at full size and a dark-theme diagram stays readable.
 //
 // Saving the file reloads the whole page, which would close the overlay. So an open
-// overlay is remembered in sessionStorage (position and source), and the first render
-// after a reload reopens it: on the diagram with the same source, which follows one
-// pushed down by a new diagram above it, else on the one at the same position, which
-// follows the one being edited, else not at all. Only a reload restores it; arriving at
-// the page any other way finds the entry, drops it and stays closed.
+// overlay is remembered in sessionStorage (position, source and diagram count), and the
+// first render after a reload reopens it: on the diagram with the same source, which
+// follows one pushed down by a new diagram above it, else on the one at the same
+// position if the count hasn't changed, which follows the one being edited, else not
+// at all. The entry stays until that render has decided, so a second reload before it
+// (a double save) still restores. Only a reload restores it; arriving at the page any
+// other way finds the entry, drops it and stays closed.
 (function () {
   var dialog = document.querySelector("[data-diagram-dialog]");
   var stage = dialog.querySelector("[data-stage]");
@@ -189,15 +195,20 @@ ${overlayDialog()}
   function takeSaved() {
     try {
       var raw = sessionStorage.getItem(KEY);
-      sessionStorage.removeItem(KEY);
       var nav = performance.getEntriesByType("navigation")[0];
-      return raw && nav && nav.type === "reload" ? JSON.parse(raw) : null;
-    } catch (err) {
-      return null;
-    }
+      if (raw && nav && nav.type === "reload") return JSON.parse(raw);
+      sessionStorage.removeItem(KEY);
+    } catch (err) {}
+    return null;
   }
   function remember() {
-    try { sessionStorage.setItem(KEY, JSON.stringify({ index: index, source: current().dataset.mermaidSource })); } catch (err) {}
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify({
+        index: index,
+        count: document.querySelectorAll("[data-diagram]").length,
+        source: current().dataset.mermaidSource,
+      }));
+    } catch (err) {}
   }
   function forget() {
     try { sessionStorage.removeItem(KEY); } catch (err) {}
@@ -205,8 +216,9 @@ ${overlayDialog()}
   function reopen(saved) {
     var sources = [].map.call(document.querySelectorAll("pre.mermaid"), function (pre) { return pre.dataset.mermaidSource; });
     var at = sources[saved.index] === saved.source ? saved.index : sources.indexOf(saved.source);
-    if (at < 0 && saved.index < sources.length) at = saved.index;
+    if (at < 0 && sources.length === saved.count) at = saved.index;
     if (at >= 0) open(document.querySelectorAll("[data-expand]")[at]);
+    else forget();
   }
   function current() {
     var frame = document.querySelectorAll("[data-diagram]")[index];
@@ -225,16 +237,24 @@ ${overlayDialog()}
     var page = decodeURIComponent(location.pathname.split("/").pop()).replace(/\\.(md|markdown)$/i, "");
     return (page || "page") + "-diagram-" + (index + 1) + ".svg";
   }
+  function cloneSized(svg, width, height) {
+    var copy = svg.cloneNode(true);
+    copy.removeAttribute("style"); // mermaid's max-width only makes sense in the column
+    if (width) {
+      copy.setAttribute("width", width);
+      copy.setAttribute("height", height);
+    }
+    return copy;
+  }
+  function zoomControls(enabled) {
+    [].forEach.call(dialog.querySelectorAll("[data-zoom-control]"), function (b) { b.disabled = !enabled; });
+  }
   function show() {
     var pre = current();
     var svg = pre && pre.querySelector("svg");
     zoom.textContent = "";
     if (!svg) return false;
-    var copy = svg.cloneNode(true);
-    copy.removeAttribute("style");
-    copy.setAttribute("width", "100%");
-    copy.setAttribute("height", "100%");
-    zoom.appendChild(copy);
+    zoom.appendChild(cloneSized(svg, "100%", "100%"));
     return true;
   }
   function open(button) {
@@ -247,10 +267,10 @@ ${overlayDialog()}
       if (!dialog.open || pz) return;
       pz = Panzoom(zoom, { minScale: 0.5, maxScale: 12, step: 0.3, cursor: "grab" });
       stage.addEventListener("wheel", pz.zoomWithWheel);
+      zoomControls(true);
     }, function (err) {
       // Offline or blocked: the fitted diagram still shows, without pan and zoom.
       console.error("browse: pan and zoom unavailable", err);
-      [].forEach.call(dialog.querySelectorAll("[data-zoom-control]"), function (b) { b.disabled = true; });
     });
   }
   dialog.addEventListener("close", function () {
@@ -258,6 +278,7 @@ ${overlayDialog()}
       stage.removeEventListener("wheel", pz.zoomWithWheel);
       pz.destroy();
       pz = null;
+      zoomControls(false);
     }
     zoom.removeAttribute("style"); // Panzoom leaves its transform behind
     zoom.textContent = "";
@@ -285,13 +306,8 @@ ${overlayDialog()}
     var pre = current();
     var svg = pre && pre.querySelector("svg");
     if (!svg) return;
-    var copy = svg.cloneNode(true);
     var box = (svg.getAttribute("viewBox") || "").split(/[\\s,]+/);
-    copy.removeAttribute("style"); // mermaid's max-width only makes sense in the column
-    if (box.length === 4) {
-      copy.setAttribute("width", box[2]);
-      copy.setAttribute("height", box[3]);
-    }
+    var copy = box.length === 4 ? cloneSized(svg, box[2], box[3]) : cloneSized(svg);
     copy.style.backgroundColor = getComputedStyle(dialog).backgroundColor;
     var xml = '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(copy);
     var url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml" }));

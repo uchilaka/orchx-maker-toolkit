@@ -82,11 +82,13 @@ test("Copy source puts the exact fence source on the clipboard", async ({ page }
 });
 
 test("closing clears the Copied confirmation", async ({ page }) => {
+  await page.clock.install();
   await open(page);
   await dialog(page).getByRole("button", { name: "Copy source" }).click();
   await expect(dialog(page).getByRole("button", { name: "Copied" })).toBeVisible();
+  // Stop the clock, so the confirmation's own 1.5s timer can't be what clears it.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1));
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Expand diagram" }).first().click();
-  // Well inside the 1.5s the confirmation would otherwise last.
-  await expect(dialog(page).getByRole("button", { name: "Copy source" })).toBeVisible({ timeout: 500 });
+  await expect(dialog(page).getByRole("button", { name: "Copy source" })).toBeVisible();
 });

@@ -1,17 +1,19 @@
 name: Browse e2e
 
-# Only when /browse or this workflow changes: the suite downloads Chromium and loads
-# mermaid from a CDN, which every other PR shouldn't pay for.
+# Only when /browse, this workflow or mise.toml changes: the suite downloads Chromium
+# and loads mermaid from a CDN, which every other PR shouldn't pay for.
 on:
   pull_request:
     paths:
       - ".claude/skills/browse/**"
       - ".github/workflows/browse-e2e.yml"
+      - "mise.toml" # the test:browse-e2e task and the Node version
   push:
     branches: [main]
     paths:
       - ".claude/skills/browse/**"
       - ".github/workflows/browse-e2e.yml"
+      - "mise.toml" # the test:browse-e2e task and the Node version
 
 permissions:
   contents: read
@@ -47,5 +49,8 @@ jobs:
         if: failure()
         with:
           name: playwright-report
-          path: .claude/skills/browse/test/e2e/playwright-report
+          # The report, plus test-results/, which holds each failed test's trace.
+          path: |
+            .claude/skills/browse/test/e2e/playwright-report
+            .claude/skills/browse/test/e2e/test-results
           retention-days: 7

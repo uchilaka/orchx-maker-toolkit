@@ -151,3 +151,30 @@ test("an open overlay follows a theme switch", async ({ page }) => {
   await expect.poll(fill).not.toBe(light);
   await expect(dialog(page)).toBeVisible();
 });
+
+const zoomControls = (page) =>
+  ["Zoom in", "Zoom out", "Reset zoom"].map((name) => dialog(page).getByRole("button", { name }));
+
+test("the zoom controls stay disabled until pan and zoom has loaded", async ({ page }) => {
+  // Hold panzoom's request, so the overlay is open but has nothing to zoom with yet.
+  let release;
+  const held = new Promise((done) => { release = done; });
+  await page.route(/@panzoom\/panzoom/, async (route) => { await held; await route.continue(); });
+  await open(page);
+  for (const control of zoomControls(page)) await expect(control).toBeDisabled();
+  release();
+  for (const control of zoomControls(page)) await expect(control).toBeEnabled();
+});
+
+test("without pan and zoom, the overlay still opens fitted, its zoom controls disabled", async ({ page }) => {
+  const logged = page.waitForEvent("console", (msg) => msg.type() === "error" && msg.text().includes("pan and zoom unavailable"));
+  await page.route(/@panzoom\/panzoom/, (route) => route.abort());
+  await open(page);
+  await logged;
+  for (const control of zoomControls(page)) await expect(control).toBeDisabled();
+  await expect(page.locator("[data-zoom] svg")).toBeVisible();
+  // Closing and reopening doesn't leave them enabled either.
+  await page.keyboard.press("Escape");
+  await expandFirst(page).click();
+  for (const control of zoomControls(page)) await expect(control).toBeDisabled();
+});
