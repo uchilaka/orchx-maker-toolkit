@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`browser-test-assist`** ships `scripts/chrome-test-profile-cleanup.py`, a `SessionEnd` hook that stops the session's test Chrome and chrome-devtools MCP server, and any orphaned ones from sessions that crashed, when the close-out step didn't run. It matches only the test profile, so the user's own Chrome and the extension browser are never touched, and it logs process IDs only. `check-setup.sh` warns when the hook isn't registered. ([#56](https://github.com/uchilaka/orchx-maker-toolkit/pull/56))
 - **`/agentic-backlog-worker` `denied_repos`:** a list of absolute paths in `~/.config/agentic-backlog-worker/config.yml` (`denied_repos: [/opt/Developer/old-repo]`) that are never a ticket repo, nor are their `-worktrees/` siblings. `start` and `rule` refuse them, and so does `merge` for any verdict queued on one. Use it for an archived or superseded checkout that still sits under `/opt/Developer`.
 
 ### Fixed
