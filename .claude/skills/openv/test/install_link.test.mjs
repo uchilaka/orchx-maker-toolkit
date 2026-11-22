@@ -18,8 +18,8 @@ function sandbox() {
   const binDir = path.join(home, '.local', 'bin');
   const link = path.join(binDir, 'openv');
   mkdirSync(home, { recursive: true });
-  const run = (action, { pathEnv = `${binDir}:/usr/bin:/bin`, sourceRoot = WORKTREE_ROOT } = {}) =>
-    spawnSync('bash', [INSTALLER, action], {
+  const run = (action, { pathEnv = `${binDir}:/usr/bin:/bin`, sourceRoot = WORKTREE_ROOT, args = [] } = {}) =>
+    spawnSync('bash', [INSTALLER, action, ...args], {
       encoding: 'utf8',
       env: { HOME: home, PATH: pathEnv, OPENV_LINK_PATH: link, ...(sourceRoot ? { SKILL_SOURCE_ROOT: sourceRoot } : {}) },
     });
@@ -39,14 +39,53 @@ test('install creates the symlink, and a second run is a no-op', () => {
   assert.match(r2.stdout, /already linked/);
 });
 
-test('install re-points a foreign symlink and names the old target', () => {
+// Security review of PR #34, finding 8: a link to something else named openv
+// may be the user's own tool, so it's replaced only on request.
+test('install leaves a foreign symlink alone unless --force is given', () => {
   const s = sandbox();
   mkdirSync(s.binDir, { recursive: true });
   symlinkSync('/bin/true', s.link);
   const r = s.run('install');
-  assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stdout, /installed -> .* \(was -> \/bin\/true\)/);
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /\/bin\/true.*--force/);
+  assert.strictEqual(readlinkSync(s.link), '/bin/true');
+
+  const forced = s.run('install', { args: ['--force'] });
+  assert.strictEqual(forced.status, 0, forced.stderr);
+  assert.match(forced.stdout, /installed -> .* \(was -> \/bin\/true\)/);
   assert.strictEqual(readlinkSync(s.link), path.join(WORKTREE_ROOT, '.claude/skills/openv/bin/openv'));
+});
+
+// Review of PR #52, T1: only a link into an openv skill folder counts as
+// openv. Anything else named openv, or a folder that only starts with
+// "openv", is foreign.
+for (const target of ['/usr/local/bin/openv', '/opt/x/.claude/skills/openv-fork/bin/openv']) {
+  test(`install treats a link to ${target} as foreign`, () => {
+    const s = sandbox();
+    mkdirSync(s.binDir, { recursive: true });
+    symlinkSync(target, s.link);
+    const r = s.run('install');
+    assert.strictEqual(r.status, 1, r.stdout);
+    assert.match(r.stderr, /--force/);
+    assert.strictEqual(readlinkSync(s.link), target);
+  });
+}
+
+test('install re-points a link to another openv copy without --force', () => {
+  const s = sandbox();
+  mkdirSync(s.binDir, { recursive: true });
+  const old = path.join(s.root, 'pruned-worktree', '.claude/skills/openv/bin/openv');
+  symlinkSync(old, s.link);
+  const r = s.run('install');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /\(was -> .*pruned-worktree/);
+  assert.strictEqual(readlinkSync(s.link), path.join(WORKTREE_ROOT, '.claude/skills/openv/bin/openv'));
+});
+
+test('install rejects an unknown option', () => {
+  const r = sandbox().run('install', { args: ['--forse'] });
+  assert.strictEqual(r.status, 2);
+  assert.match(r.stderr, /usage/);
 });
 
 test('install refuses to overwrite a regular file', () => {

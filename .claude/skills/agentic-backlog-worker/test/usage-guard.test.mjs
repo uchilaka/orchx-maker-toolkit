@@ -501,3 +501,21 @@ test('hook command: a missing script exits 2 so the call is blocked', () => {
   });
   assert.strictEqual(r.status, 2, r.stderr);
 });
+
+// A take of non-Linear work (`worker.mjs take`) gets an HO-<n> id. The capped checkpoint must
+// work for it exactly as for a Linear ticket, or a capped take could never save its work.
+test('capped: an HO take checkpoints like a ticket (plan file, worktree, own branch only)', () => {
+  assert.strictEqual(capped(write(`${RUNS}/tickets/HO-1.md`)), null);
+  assert.strictEqual(capped(write(`${RUNS}/tickets/HO-1-pr.md`)), null);
+  const main = path.join(tmp, 'ho', 'repo');
+  mkdirSync(main, { recursive: true });
+  git('-C', main, 'init', '-q');
+  git('-C', main, 'commit', '-q', '--allow-empty', '-m', 'i');
+  const wt = path.join(tmp, 'ho', 'repo-worktrees', 'HO-1');
+  git('-C', main, 'worktree', 'add', '-q', '-b', 'HO-1/session-store', wt);
+  assert.strictEqual(capped(bash(`git -C ${wt} commit --no-verify -m wip`)), null);
+  assert.strictEqual(capped(bash(`git -C ${wt} push --no-verify origin HO-1/session-store`)), null);
+  // A PR take works on the PR's own branch, which the guard will not push: the agent records
+  // "checkpoint not pushed" instead (agents/agentic-ticket-worker.md).
+  assert.ok(capped(bash(`git -C ${wt} push --no-verify origin feat/session-store`))?.deny);
+});
