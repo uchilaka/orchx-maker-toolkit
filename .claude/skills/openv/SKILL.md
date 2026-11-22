@@ -9,7 +9,7 @@ Setting it up, or stuck on a blocked command? [PLAYBOOK.md](PLAYBOOK.md) walks a
 
 The script is `${CLAUDE_SKILL_DIR}/bin/openv`. Call it by that path: the `openv` on PATH exists only if the user ran `mise run install:openv`. In OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the skill loads.
 
-> In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export`, `mise run install:openv` and the command guard work now. `items` and the template builder come next.
+> In progress (plan `OPENV_PLUGIN.md`). `status`, `items`, `run`, `export`, `mise run install:openv` and the command guard work now. The template builder comes next.
 
 ## The rule this skill exists for
 
@@ -35,7 +35,7 @@ A PreToolUse hook on Bash and Monitor, `hooks/guard-secrets.sh`, blocks commands
 - `bash` (3.2, the macOS default, or later) and `git`.
 - `pass-cli` (Proton Pass CLI), logged in: `brew install protonpass/tap/pass-cli`, then
   `pass-cli login`. Only `--check`, `run` and `export` call it.
-- `jq`, for the command guard and for `items` (not built yet).
+- `jq`, for the command guard and for `items`.
 
 ## Install onto PATH
 
@@ -109,6 +109,19 @@ dependencies, and whether `~/.local/bin/openv` links to this script.
 
 When showing this to the user, present the profiles as a short table, one row per
 variable.
+
+## Find what to reference
+
+```bash
+openv items                          # vault, type and title of every item in the allowed vaults
+openv items --vault <vault>          # one allowed vault
+openv items --fields <vault>/<title> # one item's field names and how each is stored
+```
+
+Use these to write a profile's `pass://<vault>/<title>/<field>` references. Only vaults in the allowlist are read; any other vault is refused before pass-cli runs.
+
+- The listing carries titles and types, never values.
+- `--fields` is the one openv call that reads an item, and it prints field names and storage types (`login`, `note`, `Hidden`, `Text`, ...) only. An empty login field is left out. When pass-cli or jq fails, openv says so without passing their messages on, since jq quotes its input when it errors.
 
 ## Run a command with secrets
 

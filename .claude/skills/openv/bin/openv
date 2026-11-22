@@ -18,7 +18,7 @@
 # same name.
 set -euo pipefail
 
-OPENV_VERSION="0.3.0" # 0.1.0 skeleton; 0.2.0 status (S3); 0.3.0 run + export (S5)
+OPENV_VERSION="0.4.0" # 0.1.0 skeleton; 0.2.0 status (S3); 0.3.0 run + export (S5); 0.4.0 items (S4)
 CONFIG_DIR="${OPENV_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/openv}"
 LINK_PATH="${OPENV_LINK_PATH:-$HOME/.local/bin/openv}"
 
@@ -30,11 +30,9 @@ Commands:
   status [--check] [--json]       Profiles, vault allowlist, deps (--check: login)
   run <env> -- <cmd>...           Run a command with the profile's secrets, masked
   export <env>                    Print export lines for eval (terminal only, not agents)
-  version                         Print the version
-
-Planned (not implemented yet):
   items [--vault V]               Item titles and types in the allowed vaults
   items --fields <vault>/<title>  One item's field names and types, never values
+  version                         Print the version
 USAGE
 }
 
@@ -382,6 +380,88 @@ cmd_export() {
   printf '%s' "$out"
 }
 
+# --- items --------------------------------------------------------------------
+
+# What `items --fields` keeps from `item view --output json`, the one call here
+# that returns values. An allowlist, not a denylist (plan S1): it emits a field's
+# name and the type it's stored as, and reads a value only to skip an empty
+# login field. Shapes, from S1: login fields under .item.content.content.Login,
+# custom ones under .Custom.sections[].section_fields[] as {name, content:
+# {<Type>: value}}, extra fields the same way, and the note on every item.
+ITEM_FIELDS_JQ='
+  def stored_as: if type == "object" then (keys[0] // "unknown") else "unknown" end;
+  .item.content as $c
+  | ( if (($c.note // "") | length) > 0 then ["note", "note"] else empty end ),
+    ( ($c.content // {}) | to_entries[]
+      | .key as $kind | .value
+      | if $kind == "Login" then
+          to_entries[]
+          | select(.key | IN("username", "email", "password", "totp_uri", "urls"))
+          | select((.value // "") | length > 0)
+          | [.key, "login"]
+        elif type == "object" then
+          (.sections // [])[] | (.section_fields // [])[] | [.name, (.content | stored_as)]
+        else empty end ),
+    ( ($c.extra_fields // [])[] | [.name, (.content | stored_as)] )
+  | select((.[0] | type) == "string")
+  | @tsv
+'
+
+require_jq() {
+  [ -n "$(dep_path jq)" ] || die "jq not found (brew install jq)"
+}
+
+is_allowed() { grep -Fxq -- "$1" <<<"$2"; }
+
+# Titles and types from `item list`, which carries no values (S1), per allowed
+# vault, or for one with --vault. --fields <vault>/<title> lists one item's
+# field names and types. pass-cli's and jq's stderr are dropped on both paths:
+# an error message can quote its input, and on --fields the input is values.
+cmd_items() {
+  local vault="" fields=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --vault | --fields)
+        [ $# -ge 2 ] || die "items: $1 needs a value"
+        if [ "$1" = --vault ]; then vault="$2"; else fields="$2"; fi
+        shift ;;
+      *) die "items: unknown option $1" ;;
+    esac
+    shift
+  done
+  [ -z "$vault" ] || [ -z "$fields" ] || die "items: use --vault or --fields, not both"
+
+  local project vfile allowed
+  project="$(project_name)"
+  vfile="$(vaults_file "$project")"
+  allowed="$(read_list "$vfile")"
+  [ -n "$allowed" ] || die "no vaults allowed: list vault names in ${vfile:-$CONFIG_DIR/vaults}, one per line"
+
+  if [ -n "$fields" ]; then
+    local fvault="${fields%%/*}" title="${fields#*/}"
+    case "$fields" in */*) ;; *) die "items: --fields takes <vault>/<title>" ;; esac
+    [ -n "$fvault" ] && [ -n "$title" ] || die "items: --fields takes <vault>/<title>"
+    is_allowed "$fvault" "$allowed" || die "vault \"$fvault\" isn't in the vault allowlist (${vfile})"
+    require_pass_cli; require_jq
+    pass-cli item view --vault-name "$fvault" --item-title "$title" --output json 2>/dev/null \
+      | jq -r "$ITEM_FIELDS_JQ" 2>/dev/null \
+      || die "couldn't read the fields of \"$title\" in \"$fvault\" (logged in? try 'openv status --check')"
+    return 0
+  fi
+
+  if [ -n "$vault" ]; then
+    is_allowed "$vault" "$allowed" || die "vault \"$vault\" isn't in the vault allowlist (${vfile})"
+    allowed="$vault"
+  fi
+  require_pass_cli; require_jq
+  local v
+  while IFS= read -r v; do
+    pass-cli item list "$v" --output json 2>/dev/null \
+      | jq -r --arg v "$v" '.items[] | [$v, .item_type, .title] | @tsv' 2>/dev/null \
+      || die "couldn't list vault \"$v\" (logged in? try 'openv status --check')"
+  done <<<"$allowed"
+}
+
 main() {
   local cmd="${1:-help}"
   [ $# -gt 0 ] && shift
@@ -389,6 +469,7 @@ main() {
     status) cmd_status "$@" ;;
     run) cmd_run "$@" ;;
     export) cmd_export "$@" ;;
+    items) cmd_items "$@" ;;
     version | --version | -V) echo "openv $OPENV_VERSION" ;;
     help | --help | -h) usage ;;
     *)
