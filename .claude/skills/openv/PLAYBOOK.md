@@ -111,4 +111,6 @@ Then start a new session. If `settings.json` can't be edited (invalid JSON, say)
 
 **`openv guard: jq isn't installed ...`** The guard needs `jq` to look at commands naming openv or pass-cli, so it blocks them all until `brew install jq`. A similar message about `deny.tsv` or `guard.jq` means the skill's files are incomplete: re-run the install.
 
+**`openv guard: couldn't check this command ...`** jq itself failed, and its error is printed just above. The usual cause is a `deny.tsv` row that breaks the format described at the top of that file, after a hand edit. Fix the row, or re-run the install to restore the file.
+
 **`pass-cli` isn't logged in.** `openv status --check` says so. Run `pass-cli login` in your own terminal, never through an agent.
