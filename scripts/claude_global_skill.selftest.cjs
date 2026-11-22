@@ -259,6 +259,17 @@ test('hooks: uninstall of a skill that isn\'t installed still clears a hook left
   assert.deepStrictEqual(commands(readSettings()), []);
 });
 
+// Review of PR #52, L1: hooks go before the link. If settings.json can't be
+// edited, the link stays, so the hook still finds its script.
+test('hooks: uninstall keeps the link when its hooks can\'t be removed', () => {
+  run('install', '--with-hooks', 'alpha');
+  fs.writeFileSync(settingsFile(), '{ not json');
+  const r = run('uninstall', 'alpha');
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /hooks were not removed/);
+  assert.strictEqual(linkOf('alpha'), srcOf('alpha'));
+});
+
 test('hooks: uninstall leaves the hook when the link points elsewhere', () => {
   run('install', '--with-hooks', 'alpha');
   fs.unlinkSync(path.join(skills, 'alpha'));
