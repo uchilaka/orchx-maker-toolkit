@@ -63,7 +63,7 @@ A profile is a dotenv file of variable names and `pass://` references. It holds 
    LOG_LEVEL=debug
    ```
 
-   Use share and item IDs rather than names, and no `export ` prefix. Look the IDs up in your own terminal, not in an agent session. `openv items` (plan step S4) will list them without values.
+   Use share and item IDs rather than names, and no `export ` prefix. `openv items` prints each item's `pass://<share-id>/<item-id>` without values, and `openv items --fields <vault>/<title>` its field names, so it's safe to run in an agent session.
 
 3. Check it parsed the way you meant:
 
