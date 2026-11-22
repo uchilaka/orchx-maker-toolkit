@@ -60,7 +60,7 @@ Print the table, with a quote of the code behind each verdict, then keep going.
 For each VALID finding, one at a time. When one finding's test depends on another's fix, apply the fix first.
 
 1. Re-read the finding's location. If an earlier fix in this run already fixed it, don't make an empty commit: mark it ALREADY-FIXED and write ` — Fixed in \`<sha>\`` with the earlier fix's SHA. Otherwise make the smallest edit that fixes it.
-2. Validate with the repo's own checks: the test and lint commands its `CLAUDE.md` names, otherwise its `mise` tasks (`mise tasks`), otherwise its `package.json` scripts or `Makefile`. Run the narrowest set that covers the touched files when the repo supports it.
+2. Validate with the repo's own checks: the test and lint commands its `CLAUDE.md` names, otherwise its `mise` tasks (`mise tasks`), otherwise its `package.json` scripts or `Makefile`. Run the narrowest set that covers the touched files when the repo supports it. If that set already fails at `HEAD`, before your edit, the fix can't be validated: restore the file, hold the finding for Step 5 with the failing output, and don't count it as an attempt.
 3. If it passes, commit that fix alone, staging only the files it touched. Follow the repo's commit-message convention and name the finding and the review doc in the body. Then write the finding's **Triage** line straight away (format in Step 6), ending in ` — Fixed in \`<sha>\``. `/pr-ship-check` gates on exactly that text. Every other Triage line waits for Step 6.
 4. If it fails, try again. After 3 failed attempts, restore the touched files to `HEAD` (`git restore <files>`), mark the finding's **Triage** line `needs attention — <what was tried, what failed>`, and move on to the next finding.
 

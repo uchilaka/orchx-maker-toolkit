@@ -7,10 +7,17 @@
 #                  on PATH so no eval reaches GitHub. "Me" is eval-me.
 # No remote is configured, so nothing an eval does can be pushed.
 #
-# Usage: make-fixture.sh <empty-or-new-dir>
+# With `carve-out` as the second argument it builds a different repo instead: a published
+# package (no "private": true) on feature/rate-guard, with findings that step 4c must hold
+# and one whose fix can't pass validation, plus reviews/PR-14_rate-guard.md (mine).
+#
+# Usage: make-fixture.sh <empty-or-new-dir> [carve-out]
 set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd -P)"
 
-dir="${1:?usage: make-fixture.sh <dir>}"
+dir="${1:?usage: make-fixture.sh <dir> [carve-out]}"
+scenario="${2:-discount}"
+case "$scenario" in discount|carve-out) ;; *) echo "make-fixture.sh: unknown scenario $scenario" >&2; exit 1 ;; esac
 if [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
   echo "make-fixture.sh: $dir is not empty" >&2
   exit 1
@@ -38,6 +45,7 @@ case "${args[*]}" in
   "api user"*)   out='{"login":"eval-me"}' ;;
   "pr view 12"*) out="$(pr 12 eval-me)" ;;
   "pr view 13"*) out="$(pr 13 teammate-dev)" ;;
+  "pr view 14"*) out="$(pr 14 eval-me | sed 's/Fix discount edge cases/Guard rate input/; s/Tightens Discount.apply./Validates rates in the published rates package./; s#feature/discount-fix#feature/rate-guard#')" ;;
   *) echo "fake gh: unsupported in the eval fixture: gh ${args[*]}" >&2; exit 1 ;;
 esac
 if [ -n "$filter" ]; then printf '%s\n' "$out" | jq -r "$filter"; else printf '%s\n' "$out"; fi
@@ -46,6 +54,12 @@ chmod +x "$dir/bin/gh"
 
 # --- repo -------------------------------------------------------------------------------
 cd "$dir/repo"
+if [ "$scenario" = carve-out ]; then
+  # shellcheck source=carve-out-fixture.sh
+  . "$here/carve-out-fixture.sh"
+  echo "$dir"
+  exit 0
+fi
 git init -q -b main
 git config user.name "Eval Me"
 git config user.email "eval-me@example.com"
