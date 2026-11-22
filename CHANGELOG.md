@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **openv playbook** (`.claude/skills/openv/PLAYBOOK.md`): first-time setup, adding a profile, running a command with secrets, and what to do when the guard blocks one, with a diagram of how the guard decides. SKILL.md links to it and stays the reference.
+
 ## [0.10.0-alpha] - 2026-11-22
 
 ### Added
