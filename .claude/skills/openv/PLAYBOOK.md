@@ -90,8 +90,12 @@ For your own terminal there's `eval "$(openv export <env>)"`, which refuses to r
 ```mermaid
 flowchart TD
   A[Bash or Monitor command] --> B{Guard script runs?}
-  B -- yes --> C{Matches deny.tsv?}
-  C -- no --> OK[Command runs]
+  B -- yes --> N{Names openv, pass-cli or pass:?}
+  N -- no --> OK[Command runs]
+  N -- yes --> J{jq and its files work?}
+  J -- no --> JB["Blocked: jq isn't installed, can't read ..., or couldn't check ..."]
+  J -- yes --> C{Matches deny.tsv?}
+  C -- no --> OK
   C -- yes --> BLK["Blocked: openv guard: blocked ..."]
   B -- no --> D{Names openv, pass-cli or pass:?}
   D -- no --> OK
