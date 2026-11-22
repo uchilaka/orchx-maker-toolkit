@@ -492,6 +492,7 @@ function begin(id) {
   heartbeat(run, t);
   saveRun(stateDir(), run);
   // The reply is the agent's now: drop it from the pending requeues.
+  // TODO(LAR-577): prune pending requeues for tickets that never get queued
   const { pending } = loadReplies();
   if (pending[id]) {
     delete pending[id];
