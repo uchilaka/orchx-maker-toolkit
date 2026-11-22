@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import {
-  mkdirSync, readFileSync, existsSync, utimesSync, rmSync,
+  mkdirSync, readFileSync, existsSync, utimesSync, rmSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -185,6 +185,41 @@ test('CLI merge with no files applies new repo rules', () => {
   const r = box.run(['merge']);
   assert.strictEqual(r.code, 0, r.out);
   assert.strictEqual(box.baseline().tickets['LAR-1'].status, 'queued');
+});
+
+// denied_repos reaches rule and merge through the same checkRepo as start; these pin that, so a
+// separate check in either can't silently drop the deny-list (the cami -> cami-ritv retirement).
+function deniedRepo(root) {
+  const old = path.join(root, 'old');
+  mkdirSync(path.join(old, '.git'), { recursive: true });
+  return old;
+}
+
+test('CLI rule: a repo in config denied_repos is refused and no rule is written', () => {
+  const { root } = repos();
+  const box = sandbox(root);
+  const old = deniedRepo(root);
+  writeFileSync(box.env.ABW_CONFIG, `denied_repos: [${old}]\n`);
+  const r = box.run(['rule', 'project/P', old]);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.json.error, /denied by config denied_repos/);
+  assert.strictEqual(existsSync(box.env.ABW_REPO_RULES), false);
+});
+
+test('CLI merge: an existing rule pointing at a denied repo leaves the ticket needs-repo', () => {
+  const { root } = repos();
+  const box = sandbox(root);
+  const old = deniedRepo(root);
+  box.run(['merge', '--fetched', box.file('f.json', [F('LAR-1', { project: 'P' })]),
+    '--verdicts', box.file('v.json', [V('LAR-1', { status: 'needs-repo', repo: null })])]);
+  // The rule predates the deny-list entry, as it would for cami once it was retired.
+  writeFileSync(box.env.ABW_REPO_RULES, `project/P: ${old}\n`);
+  writeFileSync(box.env.ABW_CONFIG, `denied_repos: [${old}]\n`);
+  const r = box.run(['merge']);
+  assert.strictEqual(r.code, 0, r.out);
+  const t = box.baseline().tickets['LAR-1'];
+  assert.deepStrictEqual([t.status, t.repo], ['needs-repo', null]);
+  assert.match(t.reason, /^repo unusable: .*denied by config denied_repos/);
 });
 
 test('merge --seed: 3 verdicts → baseline with 3 tickets, updatedAt null; refuses a second seed', () => {

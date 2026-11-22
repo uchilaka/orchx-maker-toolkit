@@ -1,0 +1,16 @@
+{
+  "description": "Block Bash and Monitor commands that would put a Proton Pass value in front of the agent (openv export, pass-cli item view, --no-masking, ...). Needs jq; without it, or if the guard can't run, commands naming openv or pass-cli are blocked",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"{{SKILL_DIR}}/hooks/guard-secrets.sh\" || { s=$?; [ \"$s\" = 2 ] && exit 2; i=$(cat); c=${i#*'\"command\":\"'}; c=${c%%'\",\"'*}; case $c in *openv*|*pass-cli*|*pass:*) echo \"openv guard couldn't run (exit $s), so commands naming openv, pass-cli or pass: are blocked. Reinstall openv, or remove its hook from ~/.claude/settings.json\" >&2; exit 2;; esac; }"
+          }
+        ]
+      }
+    ]
+  }
+}

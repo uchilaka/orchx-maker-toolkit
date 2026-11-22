@@ -15,6 +15,9 @@ export const DEFAULTS = Object.freeze({
   full_triage_after_days: 14,
   // Queue order of themes; a theme not listed sorts after the last one.
   theme_order: Object.freeze(['bugs', 'security', 'ci-pinning', 'chores', 'cleanups', 'tests', 'features']),
+  // Repos never used as a ticket repo, with their `<repo>-worktrees/` siblings: archived or
+  // superseded checkouts that still sit under the repos root.
+  denied_repos: Object.freeze([]),
 });
 
 // ABW_* overrides are test-only: SKILL.md hardcodes the default paths.
@@ -70,6 +73,10 @@ const SCHEMA = {
   theme_order: {
     kind: 'list',
     check: (v) => (v.length > 0 ? null : 'theme_order must list at least one theme'),
+  },
+  denied_repos: {
+    kind: 'list',
+    check: (v) => (v.every((p) => path.isAbsolute(p)) ? null : 'denied_repos must list absolute paths'),
   },
 };
 
