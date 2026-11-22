@@ -5,6 +5,8 @@ description: Load secrets from Proton Pass into a command's environment on deman
 
 # /openv: secrets on demand, never in the session
 
+Setting it up, or stuck on a blocked command? [PLAYBOOK.md](PLAYBOOK.md) walks a person through it; this file is the reference.
+
 The script is `${CLAUDE_SKILL_DIR}/bin/openv`. Call it by that path: the `openv` on PATH exists only if the user ran `mise run install:openv`. In OpenCode, replace `${CLAUDE_SKILL_DIR}` with the skill's base directory, given when the skill loads.
 
 > In progress (plan `OPENV_PLUGIN.md`). `status`, `run`, `export`, `mise run install:openv` and the command guard work now. `items` and the template builder come next.
