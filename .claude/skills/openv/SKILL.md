@@ -113,14 +113,14 @@ variable.
 ## Find what to reference
 
 ```bash
-openv items                          # vault, type and title of every item in the allowed vaults
+openv items                          # vault, type, title and pass:// ref of every item in the allowed vaults
 openv items --vault <vault>          # one allowed vault
 openv items --fields <vault>/<title> # one item's field names and how each is stored
 ```
 
-Use these to write a profile's `pass://<vault>/<title>/<field>` references. Only vaults in the allowlist are read; any other vault is refused before pass-cli runs.
+Use these to write a profile's references: the listing's last column is `pass://<share-id>/<item-id>`, and `--fields` gives the field name to append (`pass://<share-id>/<item-id>/<field>`). Only vaults in the allowlist are read; any other vault is refused before pass-cli runs.
 
-- The listing carries titles and types, never values.
+- The listing carries titles, types and IDs, never values.
 - `--fields` is the one openv call that reads an item, and it prints field names and storage types (`login`, `note`, `Hidden`, `Text`, ...) only. An empty login field is left out. When pass-cli or jq fails, openv says so without passing their messages on, since jq quotes its input when it errors.
 
 ## Run a command with secrets

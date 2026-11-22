@@ -457,7 +457,7 @@ cmd_items() {
   local v
   while IFS= read -r v; do
     pass-cli item list "$v" --output json 2>/dev/null \
-      | jq -r --arg v "$v" '.items[] | [$v, .item_type, .title] | @tsv' 2>/dev/null \
+      | jq -r --arg v "$v" '.items[] | [$v, .item_type, .title, "pass://\(.share_id)/\(.id)"] | @tsv' 2>/dev/null \
       || die "couldn't list vault \"$v\" (logged in? try 'openv status --check')"
   done <<<"$allowed"
 }

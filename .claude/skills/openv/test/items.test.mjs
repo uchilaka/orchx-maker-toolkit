@@ -99,12 +99,16 @@ const noCanary = (r) => {
   assert.ok(!r.stderr.includes(CANARY), `stderr leaked: ${r.stderr}`);
 };
 
-test('items lists titles and types in every allowed vault, and nothing else', (t) => {
+test('items lists type, title and ID ref in every allowed vault, and nothing else', (t) => {
   const s = sandbox(t);
   const r = s.run([]);
   assert.strictEqual(r.status, 0, r.stderr);
   noCanary(r);
-  assert.strictEqual(r.stdout, 'Work\tlogin\tStripe\nWork\tcustom\tDeploy key\nPersonal\tlogin\tStripe\nPersonal\tcustom\tDeploy key\n');
+  // The last column is the ref a profile uses, from IDs, so a rename can't break it.
+  assert.strictEqual(r.stdout, [
+    'Work\tlogin\tStripe\tpass://s/i1', 'Work\tcustom\tDeploy key\tpass://s/i2',
+    'Personal\tlogin\tStripe\tpass://s/i1', 'Personal\tcustom\tDeploy key\tpass://s/i2', '',
+  ].join('\n'));
   assert.deepStrictEqual(s.passCalls(), ['item list Work --output json', 'item list Personal --output json']);
 });
 
