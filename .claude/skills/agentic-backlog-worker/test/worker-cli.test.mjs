@@ -760,3 +760,24 @@ test('start: the toolkit checkout itself, or one of its worktrees, is never a ti
     assert.match(r.json.error, /is the agentic-backlog-worker toolkit checkout/, repo);
   }
 });
+
+// --- denied_repos ------------------------------------------------------------------------------
+
+// A repo the user retired (archived, superseded) is never a ticket repo, nor are its worktrees.
+test('start: a repo in config denied_repos, or one of its worktrees, is refused', () => {
+  const box = sandbox();
+  const old = path.join(REPOS, 'old');
+  const oldWt = path.join(REPOS, 'old-worktrees', 'LAR-1');
+  mkdirSync(path.join(old, '.git'), { recursive: true });
+  mkdirSync(path.join(oldWt, '.git'), { recursive: true });
+  writeFileSync(box.env.ABW_CONFIG, `denied_repos: [${old}]\n`);
+  for (const repo of [old, oldWt]) {
+    const r = box.run(['start', '--tickets', box.tickets([T('LAR-1', { repo })])]);
+    assert.strictEqual(r.code, 1, repo);
+    assert.match(r.json.error, /LAR-1: repo is denied by config denied_repos/, repo);
+  }
+  // A sibling whose name only starts with the denied one is still allowed.
+  const near = path.join(REPOS, 'old-ritv');
+  mkdirSync(path.join(near, '.git'), { recursive: true });
+  assert.strictEqual(box.run(['start', '--tickets', box.tickets([T('LAR-2', { repo: near })])]).code, 0);
+});
